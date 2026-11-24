@@ -1325,7 +1325,7 @@ function notifCard() {
     <button class="tlink muted" id="nOff" style="width:100%;justify-content:center">${ic('x')}وقّف كل الإشعارات</button>
     <div class="small ltr" id="nStatus" style="text-align:center;font-size:11.5px"></div></div>`;
 }
-const APP_VERSION = '2026.11.25-b';
+const APP_VERSION = '2026.11.25-c';
 // send a short error report to the push server (no personal data), so problems on the phone can be found
 function report(step, e, info = '') {
   if (!self.PUSH_URL) return;
@@ -1371,8 +1371,15 @@ async function disablePush() {
   S.notif = Object.assign({}, S.notif, { on: false }); save(); toast('الإشعارات اتوقفت'); render(true);
 }
 let notifTimer = null;
+let reportedView = false;
 function bindNotif() {
   notifStatus();
+  if (!reportedView) {   // once per app launch: tell the server what this phone supports (no personal data)
+    reportedView = true;
+    currentSub().then(sub => report('view', null, ['push=' + pushSupported(), 'ios=' + isIOS(), 'standalone=' + standalone(),
+      'perm=' + ('Notification' in window ? Notification.permission : 'none'), 'on=' + !!(S.notif && S.notif.on), 'sub=' + !!sub,
+      'sw=' + !!(navigator.serviceWorker && navigator.serviceWorker.controller)].join(' ')));
+  }
   const on = $('#nOn'); if (on) on.addEventListener('click', enablePush);
   const off = $('#nOff'); if (off) off.addEventListener('click', () => { if (confirm('توقف كل الإشعارات؟')) disablePush(); });
   const tst = $('#nTest');
