@@ -76,6 +76,7 @@ const P = {
   skip: '<path d="M6 5l9 7-9 7z"/><path d="M18 5v14"/>',
   bike: '<circle cx="6" cy="16.5" r="3.5"/><circle cx="18" cy="16.5" r="3.5"/><path d="M6 16.5l4-8h5l3 8M10 8.5h-2M13 8.5l-3 8"/>',
   swim: '<path d="M2.5 18c2 0 2-1.5 4-1.5s2 1.5 4 1.5 2-1.5 4-1.5 2 1.5 4 1.5 2-1.5 3-1.5"/><path d="M7 14l4-6 3 3 3-2"/><circle cx="17" cy="6" r="1.8"/>',
+  drop: '<path d="M12 3.5c3 4 6 7.2 6 10.5a6 6 0 0 1-12 0c0-3.3 3-6.5 6-10.5z"/>',
   search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>',
 };
 const ic = (n, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${P[n] || ''}</svg>`;
@@ -155,7 +156,16 @@ function startWeight() {   // number in the profile's start weight, otherwise th
   const ds = Object.keys(S.weights).sort();
   return ds.length ? S.weights[ds[0]] : null;
 }
-function weekOf(d) { return Math.floor(diffDays(d, S.start) / 7) + 1; }
+// calWeek = calendar week since the start (for weekly reports, averages, streaks).
+// weekOf  = program week (which workouts/sets): it stays behind when you repeat a week.
+function calWeek(d) { return Math.floor(diffDays(d, S.start) / 7) + 1; }
+function weekOf(d) {
+  let n = diffDays(d, S.start);
+  (S.shifts || []).forEach(s => { if (d >= s.from) n -= s.days; });
+  return Math.floor(n / 7) + 1;
+}
+const totalShiftWeeks = () => (S.shifts || []).reduce((t, s) => t + s.days, 0) / 7;
+const programEnd = () => addDays(S.start, (12 + totalShiftWeeks()) * 7 - 1);
 function progWeek(d) { return Math.min(12, Math.max(1, weekOf(d))); }
 function rotation(w) { return w <= 8 ? (w % 2 ? ['A', 'B', 'A'] : ['B', 'A', 'B']) : (w % 2 ? ['U', 'L', 'U'] : ['L', 'U', 'L']); }
 function cardioFor(w) { return w <= 2 ? [15, '3–4%'] : w <= 4 ? [20, '4–5%'] : w <= 8 ? [25, '5–7%'] : [30, '6–8%']; }
@@ -281,7 +291,7 @@ function viewPhoto(id) {
 
 // ------------------------------------------------------------------ GAME (XP, levels, ranks, trophies)
 // XP is recalculated from your real data, so undoing a set also removes its XP.
-const XP = { set: 10, step: 20, full: 100, smart: 60, walk: 30, weight: 10, meas: 50, report: 30, pr: 25, photo: 20 };
+const XP = { set: 10, step: 20, full: 100, smart: 60, walk: 30, weight: 10, meas: 50, report: 30, pr: 25, photo: 20, protein: 20, water: 10 };
 const RANKS = [[1, 'E', 'مبتدئ', '#6b7385', '#a3abbd'], [5, 'D', 'متدرب', '#16a34a', '#6ee7a8'], [10, 'C', 'ثابت', '#2563eb', '#60c2ff'],
   [15, 'B', 'قوي', '#7c3aed', '#d08bff'], [20, 'A', 'وحش', '#ea580c', '#ffb36b'], [27, 'S', 'أسطورة', '#d97706', '#ffe14d']];
 const TROPHIES = [
@@ -291,6 +301,7 @@ const TROPHIES = [
   ['pr1', '⬆️', 'أول رقم قياسي', 'زوّد الوزن مرة', s => s.prs >= 1],
   ['meas', '📏', 'بالمقاس', 'سجّل مقاساتك', s => s.meas >= 1],
   ['photo1', '📸', 'قبل وبعد', 'أول صورة تقدّم', s => s.photos >= 1],
+  ['protein7', '🍗', 'بروتين كامل', 'هدف البروتين 7 أيام', s => s.proteinDays >= 7],
   ['smart', '🛡️', 'قرار ذكي', 'ريّحت رقبتك', s => s.smart >= 1],
   ['weigh7', '⚖️', 'منضبط', 'وزن 7 أيام ورا بعض', s => s.wBest >= 7],
   ['walk10', '🚶', 'المشّاء', '10 أيام مشي', s => s.walks >= 10],
@@ -328,7 +339,7 @@ function stats() {
   Object.keys(S.logs).sort().forEach(d => {
     const l = S.logs[d];
     xp += dayXP(d);
-    if (isWorkout(d)) { workouts++; const w = weekOf(d); if (w >= 1) wk[w] = (wk[w] || 0) + 1; }
+    if (isWorkout(d)) { workouts++; const w = calWeek(d); if (w >= 1) wk[w] = (wk[w] || 0) + 1; }
     if (isFull(d)) full++;
     if (isSmart(d)) smart++;
     Object.entries(l.ex || {}).forEach(([k, a]) => {
@@ -344,18 +355,21 @@ function stats() {
   const reports = Object.values(S.weekly).filter(m => m && m.sent).length;
   const wds = Object.keys(S.weights).sort();
   const photos = new Set((S.photos || []).map(p => p.d)).size;
+  const foodDays = Object.keys(S.food || {});
+  const proteinDays = foodDays.filter(d => foodOf(d).p >= proteinTarget()).length, waterDays = foodDays.filter(d => foodOf(d).w >= waterTarget()).length;
+  xp += proteinDays * XP.protein + waterDays * XP.water;
   xp += prs * XP.pr + actDays.reduce((t, d) => t + actXP(d), 0) + wds.length * XP.weight + S.meas.length * XP.meas + reports * XP.report + photos * XP.photo;
   const fullWeeks = Object.keys(wk).filter(w => wk[w] >= 3).length;
-  const cw = weekOf(today());
+  const cw = calWeek(today());
   let streak = 0, w = (wk[cw] || 0) >= 3 ? cw : cw - 1;
   while (w >= 1 && (wk[w] || 0) >= 3) { streak++; w--; }
   let bestStreak = 0, run = 0;
-  for (let i = 1; i <= 12; i++) { run = (wk[i] || 0) >= 3 ? run + 1 : 0; bestStreak = Math.max(bestStreak, run); }
+  for (let i = 1; i <= 12 + totalShiftWeeks(); i++) { run = (wk[i] || 0) >= 3 ? run + 1 : 0; bestStreak = Math.max(bestStreak, run); }
   let wBest = 0, wRun = 0, pd = null;
   wds.forEach(d => { wRun = pd && diffDays(d, pd) === 1 ? wRun + 1 : 1; wBest = Math.max(wBest, wRun); pd = d; });
   const lv = levelFrom(xp);
   const latest = wds.length ? S.weights[wds[wds.length - 1]] : null, sw = startWeight();
-  return Object.assign({ xp, prs, workouts, full, smart, walks, reports, fullWeeks, photos, streak, bestStreak, wBest, latest,
+  return Object.assign({ xp, prs, workouts, full, smart, walks, reports, fullWeeks, photos, proteinDays, streak, bestStreak, wBest, latest,
     meas: S.meas.length, lost: latest != null && sw != null ? sw - latest : 0, rank: rankOf(lv.level) }, lv);
 }
 const rankBadge = (r, cls = '') => `<div class="rank ${cls}" style="--c1:${r[3]};--c2:${r[4]}">${r[1]}</div>`;
@@ -414,7 +428,8 @@ function sheet(html, onMount) {
 
 // ------------------------------------------------------------------ routing (each screen remembers where you scrolled)
 const NAV = { today: ['dumbbell', 'النهارده'], progress: ['chart', 'تقدّمي'], trophies: ['trophy', 'الإنجازات'], me: ['user', 'أنا'] };
-const TAB_OF = { flow: 'today', exi: 'me', meas: 'progress', edit: 'me' };
+const TAB_OF = { flow: 'today', meas: 'progress', edit: 'me' };
+let exiFrom = 'me';
 let route = 'today';
 const scrollMem = {};
 $$('nav button').forEach(b => {
@@ -422,6 +437,7 @@ $$('nav button').forEach(b => {
   b.addEventListener('click', () => go(b.dataset.tab, { top: route === b.dataset.tab }));   // tap the open tab again = back to top
 });
 function go(r, opt = {}) {
+  if (r.startsWith('exi:') && !route.startsWith('exi:')) exiFrom = route;
   scrollMem[route] = window.scrollY;
   route = r; stopTimers(); render();
   window.scrollTo(0, opt.top || r.startsWith('flow') ? 0 : (scrollMem[r] || 0));
@@ -429,7 +445,7 @@ function go(r, opt = {}) {
 function render(keepScroll) {
   const y = window.scrollY;
   const [name, arg] = route.split(':');
-  const tab = TAB_OF[name] || name;
+  const tab = name === 'exi' ? (TAB_OF[exiFrom.split(':')[0]] || exiFrom.split(':')[0]) : (TAB_OF[name] || name);
   $$('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
   document.body.classList.toggle('focus', name === 'flow');
   keepAwake(name === 'flow');
@@ -480,7 +496,7 @@ function row(i, st, log, w, nextIdx) {
 }
 function vToday() {
   const d = today(), w0 = weekOf(d), w = progWeek(d), type = currentType(d), s = stats();
-  let h = `<div class="topbar"><div><div class="brand">RANK UP</div><div class="d">${nice(d)}</div></div><span class="chip">${ic('cal')}أسبوع ${w} من 12</span></div>`;
+  let h = `<div class="topbar"><div><div class="brand">RANK UP</div><div class="d">${nice(d)}</div></div><button class="chip" id="weekChip">${ic('cal')}أسبوع ${w} من 12${isRepeat(d) ? ' • تكرار' : ''}</button></div>`;
   h += playerBar(s);
   if (w0 < 1) h += `<p class="small center" style="margin:10px 0 0">البرنامج بيبدأ ${nice(S.start)} • تقدر تجرّب من دلوقتي</p>`;
   if (s.workouts >= 1 && (!S.lastBackup || diffDays(d, S.lastBackup) >= 14))
@@ -494,6 +510,7 @@ function vToday() {
       <div class="t">${walk ? 'امشي' : 'يوم راحة'}</div>
       <div class="meta"><span class="chip glass">${ic('walk')}${walk ? 'على الأقل 30 دقيقة' : 'مشي خفيف لو حابب'}</span><span class="chip gold">${ic('bolt')}كل ما تمشي أكتر XP أكتر</span></div>
       <button class="btn ${walked ? 'ok' : 'white'}" id="walk">${walked ? ic('check') + `مشيت ${walked} دقيقة` : ic('walk') + 'سجّل المشي'}</button></div>`;
+    h += foodCard(d);
     h += actsBlock(d);
     h += '<h2>مهام صغيرة</h2>';
     h += `<button class="task" data-go="progress" data-ptab="weight">${ic('scale')}<span>سجّل وزنك النهارده</span>${S.weights[d] ? `<span class="ok-ic">${ic('check')}</span>` : xpT(10)}</button>`;
@@ -515,6 +532,7 @@ function vToday() {
     <button class="btn white play" id="startBtn">${finished ? ic('trophy') + 'شوف النتيجة' : ic('play') + (started(d) ? 'كمّل' : 'ابدأ')}</button>
     ${started(d) && !finished ? `<button class="qlink" id="cancelW">${ic('x')}إلغاء التمرين</button>` : ''}</div>`;
   const group = (title, ids) => `<h2>${title}</h2><ul class="tl">${ids.map(i => row(i, steps[i], log, w, nextIdx)).join('')}</ul>`;
+  h += foodCard(d);
   h += group('قبل التمرين', [0, 1]);
   h += group(`التمارين • ${exIdx.length}`, exIdx);
   h += `<button class="addrow" id="addEx">${ic('plus')}أضف تمرين</button>`;
@@ -539,7 +557,131 @@ BIND.today = () => {
   const bk = $('#backupNow'); if (bk) bk.addEventListener('click', exportData);
   const ae = $('#addEx'); if (ae) ae.addEventListener('click', () => addExSheet(d));
   bindActs(d);
+  bindFood(d);
+  const wc = $('#weekChip'); if (wc) wc.addEventListener('click', weekSheet);
 };
+
+// ------------------------------------------------------------------ week control (repeat a week, the program waits for you)
+const isRepeat = d => calWeek(d) >= 1 && weekOf(d) >= 1 && weekOf(d) === weekOf(addDays(d, -7));
+function weekSheet() {
+  const d = today(), cw = calWeek(d);
+  if (cw < 1) return toast('البرنامج لسه مبدأش');
+  const k = diffDays(d, S.start) % 7, thisStart = addDays(d, -k), nextStart = addDays(thisStart, 7), w = progWeek(d);
+  sheet(`<h3 class="sh-t">أسبوع ${w} من 12</h3>
+    <p class="small">البرنامج بيخلص يوم ${nice(programEnd())}. لو أسبوع فاتك أو كان صعب، كرره بدل ما تتنقل للأصعب.</p>
+    <button class="btn" id="repNext">${ic('undo')}كرر الأسبوع ده الأسبوع الجاي</button>
+    ${w > 1 ? `<button class="btn ghost" id="repBack">${ic('back')}فاتني الأسبوع اللي فات: ارجع أسبوع من النهارده</button>` : ''}
+    ${(S.shifts || []).length ? `<button class="btn ghost" id="repUndo">${ic('x')}الغي آخر تكرار</button>` : ''}`, (m, close) => {
+    const done = msg => { save(); close(); toast(msg); render(true); };
+    m.querySelector('#repNext').addEventListener('click', () => { (S.shifts = S.shifts || []).push({ from: nextStart, days: 7 }); done('الأسبوع الجاي هيبقى أسبوع ' + w + ' تاني'); });
+    const rb = m.querySelector('#repBack'); if (rb) rb.addEventListener('click', () => { (S.shifts = S.shifts || []).push({ from: thisStart, days: 7 }); done('رجعنا أسبوع ' + (w - 1)); });
+    const ru = m.querySelector('#repUndo'); if (ru) ru.addEventListener('click', () => { S.shifts.pop(); done('اتلغى'); });
+  });
+}
+
+// ------------------------------------------------------------------ protein & water (quick taps, estimates)
+const FOODS = [['egg', 'بيضة', 6], ['chicken', 'صدر فراخ 100 جم', 31], ['areesh', 'جبنة قريش 100 جم', 14], ['greek', 'زبادي يوناني كوباية', 17],
+  ['tuna', 'علبة تونة', 25], ['meat', 'لحمة أو كفتة 100 جم', 26], ['fish', 'سمك 100 جم', 22], ['milk', 'كوباية لبن أو رايب', 8],
+  ['yogurt', 'زبادي عادي', 5], ['foul', 'طبق فول', 13], ['lentil', 'طبق عدس', 18], ['bread', 'رغيف بلدي', 8]];
+const proteinTarget = () => num(String(S.profile && S.profile.protein || '').replace(/[^\d.]/g, '')) || 150;
+const waterTarget = () => { const v = num(String(S.profile && S.profile.water || '').replace(/[^\d.]/g, '')); return v ? (v < 20 ? v * 1000 : v) : 3000; };
+function foodOf(d) { const f = (S.food || {})[d] || {}; const items = f.items || []; return { items, p: items.reduce((t, x) => t + (+x.p || 0), 0), w: +f.water || 0 }; }
+function foodRec(d) { S.food = S.food || {}; return S.food[d] || (S.food[d] = { items: [], water: 0 }); }
+function foodCard(d) {
+  const f = foodOf(d), pt = proteinTarget(), wt = waterTarget();
+  const bar = (v, t) => `<div class="fbar"><i style="width:${Math.min(100, Math.round(v / t * 100))}%"></i></div>`;
+  return `<div class="foodcard">
+    <button class="frow" id="addProt"><span class="fic">${ic('food')}</span><span class="fmain"><b>بروتين <span class="ltr">${f.p} / ${pt}</span> جم</b>${bar(f.p, pt)}</span><span class="fplus">${ic('plus')}</span></button>
+    <button class="frow" id="addWater"><span class="fic water">${ic('drop')}</span><span class="fmain"><b>مية <span class="ltr">${fmt(f.w / 1000)} / ${fmt(wt / 1000)}</span> لتر</b>${bar(f.w, wt)}</span><span class="fplus">${ic('plus')}<small>كوباية</small></span></button>
+  </div>`;
+}
+function foodSheet(d) {
+  const draw = m => {
+    const f = foodOf(d);
+    m.querySelector('#fsum').innerHTML = `<b class="ltr">${f.p} / ${proteinTarget()} جم</b> ${f.p >= proteinTarget() ? '✅' : ''}`;
+    m.querySelector('#flist').innerHTML = f.items.length ? f.items.map(x => `<div class="actrow"><b>${esc(x.n)}</b><span class="ltr">+${x.p} g</span><button class="iconbtn" data-delf="${x.id}">${ic('x')}</button></div>`).join('')
+      : '<p class="small center">لسه مسجلتش حاجة النهارده</p>';
+    m.querySelectorAll('[data-delf]').forEach(b => b.addEventListener('click', () => { const r = foodRec(d); r.items = r.items.filter(x => x.id !== b.dataset.delf); save(); draw(m); }));
+  };
+  const add = (m, n, p) => { foodRec(d).items.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), n, p }); save(); draw(m); toast('+' + p + ' جم بروتين'); };
+  sheet(`<h3 class="sh-t">بروتين النهارده</h3><div id="fsum" class="small"></div>
+    <p class="small">دوس على اللي أكلته (الأرقام تقريبية):</p>
+    <div class="foods">${FOODS.map(([k, n, p]) => `<button data-food="${k}"><b>${n}</b><span class="ltr">+${p} g</span></button>`).join('')}</div>
+    <div class="field"><input class="wide" id="fname" placeholder="حاجة تانية (اختياري)"><input id="fgr" inputmode="numeric" placeholder="جم" style="width:80px"><button class="btn sm" id="fadd">${ic('plus')}</button></div>
+    <h3 style="margin-top:12px">اللي سجّلته</h3><div id="flist"></div>
+    <button class="btn" data-close>تمام</button>`, (m, close) => {
+    draw(m);
+    m.querySelectorAll('[data-food]').forEach(b => b.addEventListener('click', () => { const x = FOODS.find(f => f[0] === b.dataset.food); add(m, x[1], x[2]); }));
+    m.querySelector('#fadd').addEventListener('click', () => {
+      const p = Math.round(num(m.querySelector('#fgr').value) || 0);
+      if (p < 1 || p > 200) return toast('اكتب الجرامات صح');
+      add(m, m.querySelector('#fname').value.trim() || 'بروتين', p); m.querySelector('#fgr').value = ''; m.querySelector('#fname').value = '';
+    });
+    m.addEventListener('click', e => { if (e.target === m) render(true); });
+    m.querySelector('[data-close]').addEventListener('click', () => render(true));
+  });
+}
+function bindFood(d) {
+  const ap = $('#addProt'); if (ap) ap.addEventListener('click', () => foodSheet(d));
+  const aw = $('#addWater'); if (aw) aw.addEventListener('click', () => { foodRec(d).water = (+foodRec(d).water || 0) + 250; save(); toast('+250 مل مية'); render(true); });
+}
+
+// ------------------------------------------------------------------ strength history
+function history(k) {
+  return Object.keys(S.logs).sort().map(d => {
+    const done = ((S.logs[d].ex || {})[k] || []).filter(x => x.d);
+    if (!done.length) return null;
+    const kgs = done.map(x => num(x.kg)).filter(x => x != null);
+    return { d, kg: kgs.length ? Math.max(...kgs) : null, reps: done.map(x => x.r || '?').join('/') };
+  }).filter(Boolean);
+}
+function lineChart(vs, h = 100, small = false) {
+  if (vs.length < 2) return '';
+  const mn = Math.min(...vs) - .5, mx = Math.max(...vs) + .5, W = 320, H = h;
+  const pts = vs.map((v, i) => [i / (vs.length - 1) * W, H - (v - mn) / (mx - mn) * H]);
+  const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+  const last = pts[pts.length - 1];
+  return `<div class="chart ${small ? 'spark' : ''}"><svg viewBox="0 -8 ${W} ${H + 16}" preserveAspectRatio="none">
+    <defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7c5cff" stop-opacity=".35"/><stop offset="1" stop-color="#7c5cff" stop-opacity="0"/></linearGradient>
+    <linearGradient id="cl" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#7c5cff"/><stop offset="1" stop-color="#3fa9ff"/></linearGradient></defs>
+    ${small ? '' : `<path d="${line} L${W} ${H + 8} L0 ${H + 8} Z" fill="url(#cg)"/>`}
+    <path d="${line}" fill="none" stroke="url(#cl)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+    <circle cx="${last[0]}" cy="${last[1]}" r="${small ? 4 : 5}" fill="#3fa9ff" stroke="var(--surface)" stroke-width="2" vector-effect="non-scaling-stroke"/></svg></div>`;
+}
+function pStrength() {
+  const keys = [...new Set(Object.values(S.logs).flatMap(l => Object.keys(l.ex || {})))].filter(k => history(k).length);
+  if (!keys.length) return `<div class="empty">${ic('dumbbell')}<b>لسه مفيش تمارين متسجلة</b><span>بعد أول تمرين هتشوف هنا قوتك بتزيد إزاي في كل تمرين.</span></div>`;
+  const rows = keys.map(k => { const hs = history(k), kgs = hs.map(x => x.kg).filter(x => x != null); return { k, hs, kgs, last: hs[hs.length - 1].d }; })
+    .sort((a, b) => a.last < b.last ? 1 : -1);
+  return `<p class="small">أعلى وزن في كل جلسة. دوس على أي تمرين تشوف التفاصيل.</p>` + rows.map(({ k, hs, kgs }) => {
+    const e = exInfo(k), first = kgs[0], best = kgs.length ? Math.max(...kgs) : null;
+    return `<button class="strow" data-go="exi:${k}">${e.img ? `<img src="${img(e.img)}" alt="">` : `<span class="th">${ic('dumbbell')}</span>`}
+      <span class="stx"><b class="ltr">${esc(e.name)}</b><small>${best != null ? `<span class="ltr">${fmt(first)} → ${fmt(best)} kg</span>` : 'وزن الجسم'} • ${hs.length} ${hs.length === 1 ? 'جلسة' : hs.length <= 10 ? 'جلسات' : 'جلسة'}</small></span>
+      <span class="stc">${kgs.length >= 2 ? lineChart(kgs, 40, true) : ''}</span></button>`;
+  }).join('');
+}
+function strengthCard(k) {
+  const hs = history(k); if (!hs.length) return '';
+  const kgs = hs.map(x => x.kg).filter(x => x != null);
+  return `<h2>تقدّمك في التمرين ده</h2><div class="card">${kgs.length >= 2 ? lineChart(kgs) : ''}
+    <div class="list-plain flat">${hs.slice().reverse().slice(0, 10).map(x => `<div class="r"><span class="k">${nice(x.d)}</span><span class="v ltr">${x.kg != null ? fmt(x.kg) + ' kg × ' : ''}${esc(x.reps)}</span></div>`).join('')}</div></div>`;
+}
+
+// ------------------------------------------------------------------ neck trend
+function neckCard() {
+  const days = Object.keys(S.logs).sort().filter(d => S.logs[d].neck).slice(-28);
+  const wk = Object.keys(S.weekly).map(Number).sort((a, b) => a - b).map(w => num(S.weekly[w].neck)).filter(x => x != null);
+  if (!days.length && !wk.length) return `<h2>الرقبة</h2><div class="empty">${ic('shield')}<b>لسه مفيش بيانات</b><span>كل تمرين بيسألك عن رقبتك، وهنا هتشوف بتتحسن ولا لأ.</span></div>`;
+  const cnt = c => days.filter(d => S.logs[d].neck === c).length;
+  const score = c => ({ g: 1, y: 2, r: 3 }[c]);
+  const half = Math.floor(days.length / 2), avg = a => a.reduce((t, d) => t + score(S.logs[d].neck), 0) / (a.length || 1);
+  let trend = '';
+  if (days.length >= 6) { const a = avg(days.slice(0, half)), b = avg(days.slice(half)); trend = b < a - .15 ? '📉 بتتحسن' : b > a + .15 ? '📈 بتزيد، قولّي' : '➖ ثابتة'; }
+  return `<h2>الرقبة</h2><div class="card">
+    <div class="neckdots">${days.map(d => `<i class="n-${S.logs[d].neck}" title="${d}"></i>`).join('')}</div>
+    <div class="necksum"><span>🟢 ${cnt('g')}</span><span>🟡 ${cnt('y')}</span><span>🔴 ${cnt('r')}</span>${trend ? `<b>${trend}</b>` : ''}</div>
+    ${wk.length >= 2 ? `<div class="small" style="margin-top:8px">تقييمك كل خميس (من 10):</div>${lineChart(wk, 60)}` : ''}</div>`;
+}
 
 // ------------------------------------------------------------------ activities (walk, football, swim... with minutes)
 function actsBlock(d) {
@@ -814,30 +956,21 @@ BIND.flow = arg => {
 // ------------------------------------------------------------------ PROGRESS (4 sections)
 let progTab = 'weight';
 function weekAvg(w) {
-  const vals = Object.entries(S.weights).filter(([d]) => weekOf(d) === w).map(([, v]) => v);
+  const vals = Object.entries(S.weights).filter(([d]) => calWeek(d) === w).map(([, v]) => v);
   return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
 }
 const MEAS = [['waist', 'الوسط'], ['chest', 'الصدر'], ['hips', 'الحوض'], ['arm', 'الدراع']];
 function chart() {
   const ds = Object.keys(S.weights).sort().slice(-30);
   if (ds.length < 2) return '<p class="small center" style="margin:14px 0 2px">الجراف هيظهر بعد وزنين</p>';
-  const vs = ds.map(d => S.weights[d]), mn = Math.min(...vs) - .5, mx = Math.max(...vs) + .5, W = 320, H = 100;
-  const pts = vs.map((v, i) => [i / (vs.length - 1) * W, H - (v - mn) / (mx - mn) * H]);
-  const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
-  const last = pts[pts.length - 1];
-  return `<div class="chart"><svg viewBox="0 -8 ${W} ${H + 16}" preserveAspectRatio="none">
-    <defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7c5cff" stop-opacity=".35"/><stop offset="1" stop-color="#7c5cff" stop-opacity="0"/></linearGradient>
-    <linearGradient id="cl" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#7c5cff"/><stop offset="1" stop-color="#3fa9ff"/></linearGradient></defs>
-    <path d="${line} L${W} ${H + 8} L0 ${H + 8} Z" fill="url(#cg)"/>
-    <path d="${line}" fill="none" stroke="url(#cl)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
-    <circle cx="${last[0]}" cy="${last[1]}" r="5" fill="#3fa9ff" stroke="var(--surface)" stroke-width="2" vector-effect="non-scaling-stroke"/></svg></div>`;
+  return lineChart(ds.map(d => S.weights[d]));
 }
 function vProgress() {
-  let h = header('تقدّمي') + segs('ptabs', progTab, [['weight', 'الوزن'], ['body', 'المقاسات'], ['photos', 'الصور'], ['week', 'الخميس']]);
-  return h + ({ weight: pWeight, body: pBody, photos: pPhotos, week: pWeek }[progTab] || pWeight)();
+  let h = header('تقدّمي') + segs('ptabs', progTab, [['weight', 'الوزن'], ['strength', 'القوة'], ['body', 'الجسم'], ['photos', 'الصور'], ['week', 'الخميس']]);
+  return h + ({ weight: pWeight, strength: pStrength, body: pBody, photos: pPhotos, week: pWeek }[progTab] || pWeight)();
 }
 function pWeight() {
-  const d = today(), w = weekOf(d), cur = weekAvg(w), prv = weekAvg(w - 1);
+  const d = today(), w = calWeek(d), cur = weekAvg(w), prv = weekAvg(w - 1);
   const all = Object.keys(S.weights).sort(), lastW = all.length ? S.weights[all[all.length - 1]] : null;
   const delta = (a, b) => a != null && b != null ? `<b class="${a - b > 0 ? 'pos' : 'neg'}">${a - b > 0 ? '+' : ''}${fmt(a - b)}</b>` : '<b>—</b>';
   let h = `<div class="card"><div class="small" style="margin-bottom:8px">وزن النهارده • الصبح قبل الأكل • ${xpT(10)}</div>
@@ -861,7 +994,7 @@ function pBody() {
         return `<tr><td>${lb}</td><td>${a != null ? a : '—'}</td>${two ? `<td>${b != null ? b : '—'}</td><td class="ltr ${df < 0 ? 'neg' : df > 0 ? 'pos' : ''}">${df != null ? (df > 0 ? '+' : '') + fmt(df) : ''}</td>` : ''}</tr>`;
       }).join('') + `</table><div class="small" style="margin-top:6px">آخر تسجيل: ${nice(l.d)}</div></div>`;
   }
-  return h + `<button class="btn" data-go="meas">${ic('plus')}سجّل مقاسات • ${xpT(50)}</button>`;
+  return h + `<button class="btn" data-go="meas">${ic('plus')}سجّل مقاسات • ${xpT(50)}</button>` + neckCard();
 }
 function pPhotos() {
   const ph = (S.photos || []).slice().sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : 0);
@@ -900,7 +1033,14 @@ function weekMsg(w) {
   const byType = {};
   acts.forEach(a => { const n = actName(a); byType[n] = (byType[n] || 0) + (+a.min || 0); });
   t += `🚶 النشاط: ${acts.length ? Object.entries(byType).map(([n, mm]) => `${n} ${mm}د`).join(' • ') + ` (المجموع ${acts.reduce((s, a) => s + (+a.min || 0), 0)}د)` : '—'}\n`;
-  if (S.meas.length && weekOf(S.meas[S.meas.length - 1].d) === w) t += `📏 الوسط: ${S.meas[S.meas.length - 1].waist || '—'} سم\n`;
+  if (S.meas.length && calWeek(S.meas[S.meas.length - 1].d) === w) t += `📏 الوسط: ${S.meas[S.meas.length - 1].waist || '—'} سم\n`;
+  const fd = dates.map(foodOf).filter(f => f.p || f.w);
+  if (fd.length) t += `🍗 البروتين: متوسط ${Math.round(fd.reduce((a, f) => a + f.p, 0) / fd.length)} جم/يوم • وصلت للهدف ${dates.filter(x => foodOf(x).p >= proteinTarget()).length} أيام
+💧 المية: متوسط ${fmt(fd.reduce((a, f) => a + f.w, 0) / fd.length / 1000)} لتر/يوم
+`;
+  const nk = sessions.map(x => S.logs[x].neck).filter(Boolean);
+  if (nk.length) t += `🦒 الرقبة في التمارين: ${nk.map(x => ({ g: '🟢', y: '🟡', r: '🔴' }[x])).join(' ')}
+`;
   t += `👣 متوسط الخطوات: ${m.steps || '—'}\n🍽️ الالتزام بالأكل: ${m.food || '—'}/10\n`;
   t += `⚡ الطاقة: ${m.energy || '—'}/10 • 😋 الجوع: ${m.hunger || '—'}/10\n😴 النوم: ${m.sleep || '—'} ساعات\n🦒 الرقبة: ${m.neck || '—'}/10\n`;
   t += `🎮 مستوى ${st.level} • رتبة ${st.rank[1]}\n`;
@@ -908,11 +1048,11 @@ function weekMsg(w) {
   return t;
 }
 function pWeek() {
-  if (viewWeek == null) viewWeek = progWeek(today());
+  if (viewWeek == null) viewWeek = Math.min(12 + totalShiftWeeks(), Math.max(1, calWeek(today())));
   const w = viewWeek, m = S.weekly[w] || {};
   const f = (k, label, ph) => `<div class="field"><label>${label}</label><input data-wk="${k}" inputmode="decimal" value="${esc(m[k])}" placeholder="${ph}"></div>`;
   return `<div class="weeknav"><button class="iconbtn" id="wkPrev" ${w <= 1 ? 'disabled' : ''}>${ic('back')}</button><b>أسبوع ${w}</b>
-    <button class="iconbtn" id="wkNext" ${w >= 12 ? 'disabled' : ''}>${ic('chev')}</button></div>
+    <button class="iconbtn" id="wkNext" ${w >= 12 + totalShiftWeeks() ? 'disabled' : ''}>${ic('chev')}</button></div>
     <p class="small">كل خميس: املا الخانات، انسخ الرسالة، وابعتهالي على الشات.</p>
     <div class="card">${f('steps', 'متوسط الخطوات', '5000')}${f('food', 'الالتزام بالأكل /10', '8')}${f('energy', 'الطاقة /10', '7')}
     ${f('hunger', 'الجوع /10', '5')}${f('sleep', 'النوم (ساعات)', '6.5')}${f('neck', 'الرقبة /10', '5')}
@@ -940,7 +1080,7 @@ BIND.progress = () => {
       (S.weekly[w] = S.weekly[w] || {})[inp.dataset.wk] = inp.value.trim(); save(); $('#msg').textContent = weekMsg(w);
     }));
     $('#wkPrev').addEventListener('click', () => { viewWeek = Math.max(1, w - 1); render(true); });
-    $('#wkNext').addEventListener('click', () => { viewWeek = Math.min(12, w + 1); render(true); });
+    $('#wkNext').addEventListener('click', () => { viewWeek = Math.min(12 + totalShiftWeeks(), w + 1); render(true); });
     const sent = () => { (S.weekly[w] = S.weekly[w] || {}).sent = 1; save(); award(); };
     $('#copy').addEventListener('click', () => { copyText(weekMsg(w)); sent(); });
     const sh = $('#share'); if (sh) sh.addEventListener('click', () => navigator.share({ text: weekMsg(w) }).then(sent).catch(() => {}));
@@ -976,7 +1116,7 @@ function vTrophies() {
   h += `<details class="acc" style="margin-top:18px"><summary><span class="ico">${ic('layers')}</span>الرتب<span class="chev">${ic('chev')}</span></summary><div class="in">
     <div class="ranks">${RANKS.map(r => `<div>${rankBadge(r, 'sm' + (r[1] === s.rank[1] ? ' cur' : ''))}<span>${r[2]}</span><small>LV ${r[0]}</small></div>`).join('')}</div></div></details>`;
   h += `<details class="acc"><summary><span class="ico">${ic('bolt')}</span>إزاي تجمع XP<span class="chev">${ic('chev')}</span></summary><div class="in">${[['كل مجموعة', 10], ['الإحماء • المشي • التبريد', 20], ['تمرين كامل', 100], ['رقم قياسي', 25], ['أي نشاط: كل 3 دقايق', 2], ['مشي تريدميل أكتر من الهدف: كل 3 دقايق', 2],
-    ['تسجيل الوزن', 10], ['المقاسات', 50], ['صورة تقدّم (مرة في اليوم)', 20], ['رسالة الأسبوع', 30], ['رقبتك وجعتك وريّحتها', 60]].map(([a, b]) => `<div class="xprow"><span>${a}</span><b>+${b}</b></div>`).join('')}</div></details>`;
+    ['تسجيل الوزن', 10], ['وصلت لهدف البروتين', 20], ['وصلت لهدف المية', 10], ['المقاسات', 50], ['صورة تقدّم (مرة في اليوم)', 20], ['رسالة الأسبوع', 30], ['رقبتك وجعتك وريّحتها', 60]].map(([a, b]) => `<div class="xprow"><span>${a}</span><b>+${b}</b></div>`).join('')}</div></details>`;
   return h;
 }
 
@@ -1066,9 +1206,11 @@ BIND.edit = () => {
   $('#pSave').addEventListener('click', () => { $$('[data-pk]').forEach(i => { S.profile[i.dataset.pk] = i.value.trim(); }); save(); toast('اتحفظ'); go('me'); });
 };
 function vExi(k) {
-  const e = EX[k]; if (!e) return vMe();
-  return `<button class="back" data-go="me">${ic('back')}رجوع</button>
+  const e = exInfo(k), back = `<button class="back" data-go="${exiFrom}">${ic('back')}رجوع</button>`;
+  if (!EX[k]) return back + media(null, esc(e.name), e.ar, 'big') + (strengthCard(k) || '<p class="small center">لسه مفيش جلسات</p>');   // your own exercise
+  return `${back}
     ${media(e.img, e.name, e.ar + ' • ' + e.machine, 'big')}
+    ${strengthCard(k)}
     <div class="tiles" style="grid-template-columns:1fr 1fr"><div class="tile"><b>${nr(e.sets)}</b><span>مجموعات</span></div><div class="tile"><b>${nr(e.rest)}</b><span>راحة</span></div></div>
     <div class="card"><div class="small">${e.muscles}</div><ol class="steps-ol">${e.steps.map(x => `<li>${nr(x)}</li>`).join('')}</ol>
     <h3 style="color:var(--bad)">تجنّب</h3><ul class="steps-ol">${e.avoid.map(x => `<li>${x}</li>`).join('')}</ul>
