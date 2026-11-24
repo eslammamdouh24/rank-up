@@ -530,7 +530,8 @@ function vToday() {
     <div class="meta"><span class="chip glass">${ic('dumbbell')}${exIdx.length} تمارين</span><span class="chip glass">${ic('cal')}60 د</span><span class="chip gold">${ic('bolt')}${xpT(maxXP)}</span></div>
     <div class="bar"><i style="width:${Math.round(nDone / real.length * 100)}%"></i></div>
     <button class="btn white play" id="startBtn">${finished ? ic('trophy') + 'شوف النتيجة' : ic('play') + (started(d) ? 'كمّل' : 'ابدأ')}</button>
-    ${started(d) && !finished ? `<button class="qlink" id="cancelW">${ic('x')}إلغاء التمرين</button>` : ''}</div>`;
+    ${started(d) && !finished ? `<button class="qlink" id="cancelW">${ic('x')}إلغاء التمرين</button>`
+      : !sch && log && log.w ? `<button class="qlink" id="closeW">${ic('x')}اقفل التمرين (رجوع ليوم ${parseD(d).getDay() === 0 || parseD(d).getDay() === 2 ? 'المشي' : 'الراحة'})</button>` : ''}</div>`;
   const group = (title, ids) => `<h2>${title}</h2><ul class="tl">${ids.map(i => row(i, steps[i], log, w, nextIdx)).join('')}</ul>`;
   h += foodCard(d);
   h += group('قبل التمرين', [0, 1]);
@@ -552,6 +553,7 @@ BIND.today = () => {
     go('flow:' + (i < 0 ? steps.length - 1 : i));
   });
   const cw = $('#cancelW'); if (cw) cw.addEventListener('click', () => { if (cancelWorkout(d)) render(true); });
+  const clw = $('#closeW'); if (clw) clw.addEventListener('click', () => { delete S.logs[d]; save(); render(true); });
   $$('[data-pick]').forEach(b => b.addEventListener('click', () => { getLog(d).w = b.dataset.pick; save(); render(true); }));
   const wk = $('#walk'); if (wk) wk.addEventListener('click', () => actSheet(d, 'walk'));
   const bk = $('#backupNow'); if (bk) bk.addEventListener('click', exportData);
@@ -592,7 +594,8 @@ function foodCard(d) {
   const bar = (v, t) => `<div class="fbar"><i style="width:${Math.min(100, Math.round(v / t * 100))}%"></i></div>`;
   return `<div class="foodcard">
     <button class="frow" id="addProt"><span class="fic">${ic('food')}</span><span class="fmain"><b>بروتين <span class="ltr">${f.p} / ${pt}</span> جم</b>${bar(f.p, pt)}</span><span class="fplus">${ic('plus')}</span></button>
-    <button class="frow" id="addWater"><span class="fic water">${ic('drop')}</span><span class="fmain"><b>مية <span class="ltr">${fmt(f.w / 1000)} / ${fmt(wt / 1000)}</span> لتر</b>${bar(f.w, wt)}</span><span class="fplus">${ic('plus')}<small>كوباية</small></span></button>
+    <div class="frow"><span class="fic water">${ic('drop')}</span><span class="fmain"><b>مية <span class="ltr">${fmt(f.w / 1000)} / ${fmt(wt / 1000)}</span> لتر</b>${bar(f.w, wt)}</span>
+      ${f.w ? `<button class="fminus" id="subWater" aria-label="شيل كوباية">${ic('minus')}</button>` : ''}<button class="fplus" id="addWater">${ic('plus')}<small>كوباية</small></button></div>
   </div>`;
 }
 function foodSheet(d) {
@@ -624,6 +627,7 @@ function foodSheet(d) {
 function bindFood(d) {
   const ap = $('#addProt'); if (ap) ap.addEventListener('click', () => foodSheet(d));
   const aw = $('#addWater'); if (aw) aw.addEventListener('click', () => { foodRec(d).water = (+foodRec(d).water || 0) + 250; save(); toast('+250 مل مية'); render(true); });
+  const sw = $('#subWater'); if (sw) sw.addEventListener('click', () => { foodRec(d).water = Math.max(0, (+foodRec(d).water || 0) - 250); save(); toast('اتشالت كوباية'); render(true); });
 }
 
 // ------------------------------------------------------------------ strength history
@@ -818,18 +822,19 @@ function vFlow(arg) {
       <button class="choice" data-neck="y"><span class="dot" style="background:var(--warn)">${nr('5–6')}</span><span><b>فيها شوية ألم</b><small>نص الوزن في تمارين الجزء العلوي</small></span></button>
       <button class="choice" data-neck="r"><span class="dot" style="background:var(--bad)">${nr('7–10')}</span><span><b>وجعاني</b><small>مشي وإطالة بس • ${xpT(60)} على القرار الذكي</small></span></button>`;
   }
-  const moves = (title, sub, items, mark, label) => h + `<h1>${title}</h1><p class="small">${sub}</p>` +
+  const undoBar = mark => log[mark] ? `<div class="donebar">${ic('check')}<span>اتسجّل إنك خلصته</span><button class="tlink" data-unmark="${mark}">${ic('undo')}الغي</button></div>` : '';
+  const moves = (title, sub, items, mark, label) => h + `<h1>${title}</h1><p class="small">${sub}</p>${undoBar(mark)}` +
     items.map(([im, t, e, s], j) => `<div class="item">${media(im, '', '', 'sm')}<div class="tx"><span class="num-badge">${j + 1}</span><div><b>${t}</b> ${en(e)}<div class="small">${nr(s)}</div></div></div></div>`).join('') +
-    `<div class="stickybar"><button class="btn ok" data-mark="${mark}">${ic('check')}${label}</button></div>`;
+    `<div class="stickybar">${log[mark] ? `<button class="btn" data-go="flow:${i + 1}">كمّل ${ic('chev')}</button>` : `<button class="btn ok" data-mark="${mark}">${ic('check')}${label}</button>`}</div>`;
   if (st.id === 'warm') return moves('الإحماء', '7 دقايق • ' + xpT(20), WARM, 'warm', 'خلصت الإحماء');
   if (st.id === 'cardio') {
     const [cm, inc] = cardioFor(w), done = log.cardioMin || cm;
-    return h + `<h1>مشي تريدميل</h1><p class="small">الهدف ${cm} دقيقة • لو مشيت أكتر تاخد XP زيادة</p>${media('Walking_Treadmill')}
+    return h + `<h1>مشي تريدميل</h1><p class="small">الهدف ${cm} دقيقة • لو مشيت أكتر تاخد XP زيادة</p>${undoBar('cardio')}${media('Walking_Treadmill')}
       <div class="tiles"><div class="tile"><b>${cm}</b><span>دقيقة (الهدف)</span></div><div class="tile"><b>${inc}</b><span>الميل</span></div><div class="tile"><b>4.5–5.5</b><span>كم/س</span></div></div>
       <div class="callout">${ic('info')}<span>تقدر تتكلم بجمل كاملة، بس متقدرش تغني. متمسكش في التريدميل.</span></div>
       <div class="picker" style="margin-top:12px"><div class="l">مشيت كام دقيقة؟</div><input id="cmin" inputmode="numeric" value="${done}">
       <div class="pm"><button data-cstep="-5">${ic('minus')}</button><button data-cstep="5">${ic('plus')}</button></div></div>
-      <div class="stickybar"><button class="btn ok" id="cardioDone">${ic('check')}خلصت المشي</button></div>`;
+      <div class="stickybar"><button class="btn ok" id="cardioDone">${ic('check')}${log.cardio ? 'حفظ الدقايق وكمّل' : 'خلصت المشي'}</button></div>`;
   }
   if (st.id === 'cool') return moves('التبريد', '5 دقايق • ' + xpT(20), COOL, 'cool', 'خلصت');
   if (st.id === 'done') {
@@ -885,7 +890,8 @@ function vFlow(arg) {
   if (doneSets.length) h += `<div class="logged">${doneSets.map(x => `<span>${x.kg ? esc(x.kg) + 'kg × ' : ''}${esc(x.r)}</span>`).join('')}</div>
     <p class="center" style="margin:6px 0 0"><button class="tlink muted" id="undo">${ic('undo')}الغي آخر مجموعة</button></p>`;
   h += '</div>';
-  if (cur >= 0) h += `<p class="center"><button class="tlink muted" id="skipEx">${ic('skip')}تخطّي التمرين ده</button></p>`;
+  if ((log.skip || {})[it.k]) h += `<div class="donebar">${ic('skip')}<span>اتخطّيت التمرين ده</span><button class="tlink" id="unskip">${ic('undo')}رجّعه</button></div>`;
+  else if (cur >= 0) h += `<p class="center"><button class="tlink muted" id="skipEx">${ic('skip')}تخطّي التمرين ده</button></p>`;
   return h;
 }
 BIND.flow = arg => {
@@ -898,6 +904,8 @@ BIND.flow = arg => {
     if (log.neck === 'r') { toast('النهارده مشي وإطالة بس'); go('flow:' + steps.findIndex(x => x.id === 'cardio')); } else next();
   }));
   $$('[data-mark]').forEach(b => b.addEventListener('click', () => { log[b.dataset.mark] = 1; save(); next(); }));
+  $$('[data-unmark]').forEach(b => b.addEventListener('click', () => { log[b.dataset.unmark] = 0; if (b.dataset.unmark === 'cardio') delete log.cardioMin; save(); toast('اتلغى'); render(true); }));
+  const us = $('#unskip'); if (us) us.addEventListener('click', () => { delete log.skip[st.it.k]; save(); render(true); });
   startFlip();
   if (st.id === 'cardio') {
     const cin = $('#cmin');
@@ -992,7 +1000,7 @@ function pBody() {
       MEAS.map(([k, lb]) => {
         const a = num(f[k]), b = num(l[k]), df = a != null && b != null ? b - a : null;
         return `<tr><td>${lb}</td><td>${a != null ? a : '—'}</td>${two ? `<td>${b != null ? b : '—'}</td><td class="ltr ${df < 0 ? 'neg' : df > 0 ? 'pos' : ''}">${df != null ? (df > 0 ? '+' : '') + fmt(df) : ''}</td>` : ''}</tr>`;
-      }).join('') + `</table><div class="small" style="margin-top:6px">آخر تسجيل: ${nice(l.d)}</div></div>`;
+      }).join('') + `</table><div class="sheet-row"><span class="small">آخر تسجيل: ${nice(l.d)}</span><button class="tlink muted" id="delMeas">${ic('trash')}امسحه</button></div></div>`;
   }
   return h + `<button class="btn" data-go="meas">${ic('plus')}سجّل مقاسات • ${xpT(50)}</button>` + neckCard();
 }
@@ -1064,6 +1072,7 @@ function pWeek() {
 BIND.progress = () => {
   const d = today();
   bindSeg('ptabs', v => { progTab = v; });
+  const dm = $('#delMeas'); if (dm) dm.addEventListener('click', () => { if (confirm('تمسح آخر مقاسات سجّلتها؟')) { S.meas.pop(); save(); render(true); } });
   const ws = $('#wSave');
   if (ws) ws.addEventListener('click', () => {
     const v = num($('#wIn').value);
