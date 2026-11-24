@@ -195,8 +195,9 @@ function scheduled(d) {
   if (wd === 6) return { type: rot[0] };
   if (wd === 1) return { type: rot[1] };
   if (wd === 3) return { type: rot[2] };
-  if (weekOf(d) >= 1 && wd === 0 && !hasDone(addDays(d, -1))) return { type: rot[0], note: 'تعويض السبت' };
-  if (weekOf(d) >= 1 && wd === 2 && !hasDone(addDays(d, -1))) return { type: rot[1], note: 'تعويض الاتنين' };
+  // a red-neck walking day also counts, so it isn't offered again as a makeup
+  if (weekOf(d) >= 1 && wd === 0 && !isWorkout(addDays(d, -1))) return { type: rot[0], note: 'تعويض السبت' };
+  if (weekOf(d) >= 1 && wd === 2 && !isWorkout(addDays(d, -1))) return { type: rot[1], note: 'تعويض الاتنين' };
   return null;
 }
 function currentType(d) { const l = S.logs[d]; if (l && l.w) return l.w; const s = scheduled(d); return s ? s.type : null; }
@@ -697,7 +698,7 @@ function vFlow(arg) {
         : photoBtn('phDone', 'gold', 'صوّر نفسك • ' + xpT(20))}
       <h2>اللي عملته</h2><div class="list-plain">${exs.map(x => {
         const a = (log.ex[x.it.k] || []).filter(y => y.d);
-        return `<div class="r"><span class="k">${en(esc(exInfo(x.it.k).name))}</span><span class="v ltr">${a.length ? a.map(y => (y.kg ? y.kg + '×' : '') + (y.r || '?')).join('  ') : '—'}</span></div>`;
+        return `<div class="r"><span class="k">${en(esc(exInfo(x.it.k).name))}</span><span class="v ltr">${a.length ? a.map(y => esc((y.kg ? y.kg + '×' : '') + (y.r || '?'))).join('  ') : '—'}</span></div>`;
       }).join('')}${log.cardio ? `<div class="r"><span class="k">مشي تريدميل</span><span class="v ltr">${log.cardioMin || cardioFor(w)[0]} min</span></div>` : ''}</div>
       <div class="note info"><span class="ic">${ic('msg')}</span><span>قولّي على الشات: كان عامل إزاي؟ وهل أي تمرين ضايق رقبتك؟</span></div>
       <button class="btn" data-go="today">رجوع</button>`;
@@ -1089,7 +1090,8 @@ function fallbackCopy(t, done) {
   ta.remove();
 }
 function exportData() {   // backup = all data + the photos
-  pall().catch(() => []).then(photosData => {
+  const ids = new Set((S.photos || []).map(p => p.id));
+  pall().catch(() => []).then(all => all.filter(p => ids.has(p.id))).then(photosData => {   // only photos that are in your list
     const name = 'rankup-backup-' + today() + '.json';
     const blob = new Blob([JSON.stringify(Object.assign({}, S, { photosData }))], { type: 'application/json' });
     const file = new File([blob], name, { type: 'application/json' });
