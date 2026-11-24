@@ -14,6 +14,23 @@ const ALT = {
   curl: 'dbcurl', dbcurl: 'curl', legext: 'legpress',
 };
 
+// Warm-up and cool-down moves, each with a start and an end picture.
+const WARM = [
+  ['Bicycling_Stationary', 'عجلة أو مشي', 'Bike / Treadmill', '5 دقايق، مجهود خفيف'],
+  ['Cat_Stretch', 'القطة والجمل', 'Cat-Cow', '8 مرات ببطء: قوّس ضهرك لفوق، وبعدين نزّله لتحت'],
+  ['Shoulder_Circles', 'لف الكتف لورا', 'Shoulder Rolls', '10 مرات: ارفع كتافك ولفّهم لورا ولتحت'],
+  ['chin_tuck', 'شد الدقن لورا', 'Chin Tucks', '8 مرات: رجّع دقنك لورا بخط مستقيم واثبت 3 ثواني، من غير ألم'],
+];
+const COOL = [
+  ['Kneeling_Hip_Flexor', 'مقدمة الحوض', 'Kneeling Hip Flexor', 'ركبة على الأرض وادفع الحوض لقدام بهدوء • 30 ثانية لكل رجل'],
+  ['Hamstring_Stretch', 'الفخذ الخلفي', 'Hamstring Stretch', 'ضهرك مفرود وميل من الحوض لحد ما تحس شد خفيف • 30 ثانية'],
+  ['Dynamic_Chest_Stretch', 'فتح الصدر', 'Chest Opener', 'افتح دراعاتك لورا بهدوء وارجع • 10 مرات'],
+  ['Side_Neck_Stretch', 'جانب الرقبة', 'Side Neck Stretch', 'ميّل راسك للجنب بهدوء، إيدك بتسند بس • 20 ثانية كل ناحية. لو بتوجع ← وقّف'],
+];
+// Activities you can log on any day, with minutes.
+const ACTS = [['walk', 'مشي', 'walk'], ['run', 'جري', 'bolt'], ['football', 'كورة', 'target'], ['swim', 'سباحة', 'swim'], ['bike', 'عجلة', 'bike'], ['other', 'تاني', 'plus']];
+const actName = a => a.type === 'other' ? (a.name || 'نشاط') : (ACTS.find(x => x[0] === a.type) || ACTS[5])[1];
+
 // ------------------------------------------------------------------ icons (inline SVG)
 const P = {
   dumbbell: '<path d="M6.5 6.5v11M3.5 9v6M17.5 6.5v11M20.5 9v6M6.5 12h11"/>',
@@ -57,6 +74,9 @@ const P = {
   camera: '<path d="M4 8h3l2-3h6l2 3h3v11.5H4z"/><circle cx="12" cy="13.5" r="3.5"/>',
   trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>',
   skip: '<path d="M6 5l9 7-9 7z"/><path d="M18 5v14"/>',
+  bike: '<circle cx="6" cy="16.5" r="3.5"/><circle cx="18" cy="16.5" r="3.5"/><path d="M6 16.5l4-8h5l3 8M10 8.5h-2M13 8.5l-3 8"/>',
+  swim: '<path d="M2.5 18c2 0 2-1.5 4-1.5s2 1.5 4 1.5 2-1.5 4-1.5 2 1.5 4 1.5 2-1.5 3-1.5"/><path d="M7 14l4-6 3 3 3-2"/><circle cx="17" cy="6" r="1.8"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>',
 };
 const ic = (n, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${P[n] || ''}</svg>`;
 
@@ -74,7 +94,11 @@ const PROFILE = [
 function load() {
   let s = null;
   try { s = JSON.parse(localStorage.getItem(KEY)); } catch (e) { /* ignore */ }
-  return Object.assign({ start: '2026-11-28', logs: {}, weights: {}, weekly: {}, profile: {}, meas: [], walks: {}, theme: 'dark' }, s || {});
+  s = Object.assign({ start: '2026-11-28', logs: {}, weights: {}, weekly: {}, profile: {}, meas: [], walks: {}, acts: [], custom: {}, theme: 'dark' }, s || {});
+  // older versions stored walks as {date: 1}; turn them into activities (45 min)
+  Object.entries(s.walks || {}).forEach(([d, v]) => { if (v) s.acts.push({ id: 'w' + d, d, type: 'walk', min: v === 1 ? 45 : +v }); });
+  s.walks = {};
+  return s;
 }
 let S = load();
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast('مش قادر أحفظ'); } }
@@ -102,7 +126,27 @@ const num = v => { const x = parseFloat(String(v == null ? '' : v).replace(',', 
 const fmt = x => (Math.round(x * 10) / 10).toString();
 const $ = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);
-const img = (name, n = 0) => `img/${name}_${n}.jpg`;
+const img = (name, n = 0) => name === 'chin_tuck' ? `img/chin_tuck_${n}.svg` : `img/${name}_${n}.jpg`;
+// a picture that switches between the start and the end position
+const media = (name, title = '', sub = '', cls = '') => name
+  ? `<div class="media flipper ${cls}"><span class="chip glass cap">البداية</span><img class="a" src="${img(name)}" alt=""><img class="b" src="${img(name, 1)}" alt="">
+     ${title ? `<div class="ttl">${sub ? `<div class="s">${sub}</div>` : ''}<div class="n">${title}</div></div>` : ''}</div>`
+  : `<div class="media noimg ${cls}">${ic('dumbbell')}${title ? `<div class="ttl"><div class="n">${title}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>` : ''}</div>`;
+function startFlip() {
+  clearInterval(animInt);
+  if (!$('.flipper')) return;
+  animInt = setInterval(() => $$('.flipper').forEach(m => {
+    m.classList.toggle('flip'); const c = m.querySelector('.cap'); if (c) c.textContent = m.classList.contains('flip') ? 'النهاية' : 'البداية';
+  }), 1700);
+}
+// library exercise, or one you added by name
+function exInfo(k) {
+  return EX[k] || { name: (S.custom && S.custom[k]) || 'تمرين', ar: 'تمرين من عندك', img: null, machine: '', muscles: '', sets: '3 × 10–12', rest: '60 ث', steps: [], avoid: [], neck: '', alt: '' };
+}
+function actXP(d) {   // ~2 XP for every 3 minutes, max 100 a day
+  const mins = (S.acts || []).filter(a => a.d === d).reduce((t, a) => t + (+a.min || 0), 0);
+  return Math.min(100, Math.round(mins * 2 / 3));
+}
 const xpT = n => `<span class="ltr" style="font-weight:800">+${n} XP</span>`;
 
 function startWeight() {   // number in the profile's start weight, otherwise the first weight recorded
@@ -137,7 +181,13 @@ function planFor(type, w) {
 // today's plan with any swaps applied (the swapped exercise keeps the same sets and reps)
 function sessionPlan(d, type) {
   const l = S.logs[d] || {}, sw = l.swap || {};
-  return planFor(type || l.w || currentType(d) || 'A', progWeek(d)).map(it => sw[it.k] ? Object.assign({}, it, { k: sw[it.k], bw: BODYWEIGHT.includes(sw[it.k]) }) : it);
+  const plan = planFor(type || l.w || currentType(d) || 'A', progWeek(d)).map(it => sw[it.k] ? Object.assign({}, it, { k: sw[it.k], bw: BODYWEIGHT.includes(sw[it.k]) }) : it);
+  // exercises you added yourself today
+  (l.extra || []).forEach(x => {
+    const p = parseSets(x.n + ' × ' + x.reps);
+    plan.push(Object.assign({ k: x.k, orig: x.k, s: x.n + ' × ' + x.reps, bw: BODYWEIGHT.includes(x.k), extra: true }, p));
+  });
+  return plan;
 }
 function hasDone(d) { const l = S.logs[d]; return !!(l && l.ex && Object.values(l.ex).some(a => a.some(x => x.d))); }
 function scheduled(d) {
@@ -267,7 +317,9 @@ const isWorkout = d => hasDone(d) || isSmart(d);
 function dayXP(d) {
   const l = S.logs[d]; if (!l) return 0;
   const sets = Object.values(l.ex || {}).reduce((a, arr) => a + arr.filter(x => x.d).length, 0);
-  return sets * XP.set + ['warm', 'cardio', 'cool'].filter(k => l[k]).length * XP.step + (isFull(d) ? XP.full : 0) + (isSmart(d) ? XP.smart : 0);
+  const extraCardio = l.cardio && l.cardioMin ? Math.max(0, l.cardioMin - cardioFor(progWeek(d))[0]) : 0;   // walked longer than planned
+  return sets * XP.set + ['warm', 'cardio', 'cool'].filter(k => l[k]).length * XP.step + (isFull(d) ? XP.full : 0) + (isSmart(d) ? XP.smart : 0)
+    + Math.min(60, Math.round(extraCardio * 2 / 3));
 }
 function stats() {
   let xp = 0, prs = 0, workouts = 0, full = 0, smart = 0;
@@ -286,11 +338,12 @@ function stats() {
       if (best[k] == null || m > best[k]) best[k] = m;
     });
   });
-  const walks = Object.values(S.walks).filter(Boolean).length;
+  const actDays = [...new Set((S.acts || []).map(a => a.d))];
+  const walks = new Set((S.acts || []).filter(a => a.type === 'walk' && a.min >= 20).map(a => a.d)).size;
   const reports = Object.values(S.weekly).filter(m => m && m.sent).length;
   const wds = Object.keys(S.weights).sort();
   const photos = new Set((S.photos || []).map(p => p.d)).size;
-  xp += prs * XP.pr + walks * XP.walk + wds.length * XP.weight + S.meas.length * XP.meas + reports * XP.report + photos * XP.photo;
+  xp += prs * XP.pr + actDays.reduce((t, d) => t + actXP(d), 0) + wds.length * XP.weight + S.meas.length * XP.meas + reports * XP.report + photos * XP.photo;
   const fullWeeks = Object.keys(wk).filter(w => wk[w] >= 3).length;
   const cw = weekOf(today());
   let streak = 0, w = (wk[cw] || 0) >= 3 ? cw : cw - 1;
@@ -412,9 +465,10 @@ function row(i, st, log, w, nextIdx) {
   const dn = stepDone(st, log);
   let th, t, sub, tag = '';
   if (st.id === 'ex') {
-    const e = EX[st.it.k];
-    th = `<img class="th" src="${img(e.img)}" alt="">`; t = en(e.name); sub = nr(st.it.s);
+    const e = exInfo(st.it.k);
+    th = e.img ? `<img class="th" src="${img(e.img)}" alt="">` : `<span class="th">${ic('dumbbell')}</span>`; t = en(esc(e.name)); sub = nr(st.it.s);
     if (st.it.k !== st.it.orig) tag = '<span class="tag">بديل</span>';
+    if (st.it.extra) tag = '<span class="tag">إضافي</span>';
     if ((log && log.skip || {})[st.it.k]) tag = '<span class="tag">اتخطّى</span>';
   } else {
     const m = { neck: ['الرقبة النهارده', 'سؤال واحد', null, 'shield'], warm: ['الإحماء', '7 دقايق', 'Bicycling_Stationary'],
@@ -432,12 +486,14 @@ function vToday() {
     h += `<div class="note warn"><span class="ic">${ic('save')}</span><span>بقالك أسبوعين من غير نسخة احتياطية</span><button class="go" id="backupNow">احفظ</button></div>`;
 
   if (!type) {   // walk / rest day
-    const wd = parseD(d).getDay(), walk = wd === 0 || wd === 2, walked = S.walks[d];
+    const wd = parseD(d).getDay(), walk = wd === 0 || wd === 2;
+    const walked = (S.acts || []).filter(a => a.d === d && a.type === 'walk').reduce((t, a) => t + (+a.min || 0), 0);
     h += `<div class="quest" style="--bg-img:url(${img('Walking_Treadmill')})">
       <span class="chip glass lab">${ic('target')}مهمة النهارده</span>
       <div class="t">${walk ? 'امشي' : 'يوم راحة'}</div>
-      <div class="meta"><span class="chip glass">${ic('walk')}${walk ? nr('30–45 دقيقة') : 'مشي خفيف لو حابب'}</span><span class="chip gold">${ic('bolt')}${xpT(30)}</span></div>
-      <button class="btn ${walked ? 'ok' : 'white'}" id="walk">${walked ? ic('check') + 'تمت المهمة' : 'مشيت'}</button></div>`;
+      <div class="meta"><span class="chip glass">${ic('walk')}${walk ? 'على الأقل 30 دقيقة' : 'مشي خفيف لو حابب'}</span><span class="chip gold">${ic('bolt')}كل ما تمشي أكتر XP أكتر</span></div>
+      <button class="btn ${walked ? 'ok' : 'white'}" id="walk">${walked ? ic('check') + `مشيت ${walked} دقيقة` : ic('walk') + 'سجّل المشي'}</button></div>`;
+    h += actsBlock(d);
     h += '<h2>مهام صغيرة</h2>';
     h += `<button class="task" data-go="progress" data-ptab="weight">${ic('scale')}<span>سجّل وزنك النهارده</span>${S.weights[d] ? `<span class="ok-ic">${ic('check')}</span>` : xpT(10)}</button>`;
     if (wd === 4) h += `<button class="task" data-go="progress" data-ptab="week">${ic('msg')}<span>ابعت متابعة الأسبوع</span>${xpT(30)}</button>`;
@@ -460,7 +516,9 @@ function vToday() {
   const group = (title, ids) => `<h2>${title}</h2><ul class="tl">${ids.map(i => row(i, steps[i], log, w, nextIdx)).join('')}</ul>`;
   h += group('قبل التمرين', [0, 1]);
   h += group(`التمارين • ${exIdx.length}`, exIdx);
+  h += `<button class="addrow" id="addEx">${ic('plus')}أضف تمرين</button>`;
   h += group('بعد التمرين', [steps.length - 3, steps.length - 2]);
+  h += actsBlock(d);
   if (!started(d)) {
     const other = (w <= 8 ? ['A', 'B'] : ['U', 'L']).find(x => x !== type);
     h += `<p class="center"><button class="tlink" data-pick="${other}">${ic('swap')}بدّل لـ ${en(LABEL[other])}</button></p>`;
@@ -476,9 +534,92 @@ BIND.today = () => {
   });
   const cw = $('#cancelW'); if (cw) cw.addEventListener('click', () => { if (cancelWorkout(d)) render(true); });
   $$('[data-pick]').forEach(b => b.addEventListener('click', () => { getLog(d).w = b.dataset.pick; save(); render(true); }));
-  const wk = $('#walk'); if (wk) wk.addEventListener('click', () => { S.walks[d] = S.walks[d] ? 0 : 1; save(); render(true); });
+  const wk = $('#walk'); if (wk) wk.addEventListener('click', () => actSheet(d, 'walk'));
   const bk = $('#backupNow'); if (bk) bk.addEventListener('click', exportData);
+  const ae = $('#addEx'); if (ae) ae.addEventListener('click', () => addExSheet(d));
+  bindActs(d);
 };
+
+// ------------------------------------------------------------------ activities (walk, football, swim... with minutes)
+function actsBlock(d) {
+  const list = (S.acts || []).filter(a => a.d === d);
+  return `<h2>نشاط النهارده</h2>${list.map(a => `<div class="actrow">${ic((ACTS.find(x => x[0] === a.type) || ACTS[5])[2])}
+    <b>${esc(actName(a))}</b><span class="ltr">${a.min} min</span><button class="iconbtn" data-delact="${a.id}" aria-label="مسح">${ic('x')}</button></div>`).join('')}
+    <button class="addrow" id="addAct">${ic('plus')}سجّل نشاط (مشي، كورة، سباحة...)</button>`;
+}
+function bindActs(d) {
+  const b = $('#addAct'); if (b) b.addEventListener('click', () => actSheet(d));
+  $$('[data-delact]').forEach(x => x.addEventListener('click', () => {
+    if (!confirm('تمسح النشاط ده؟')) return;
+    S.acts = S.acts.filter(a => a.id !== x.dataset.delact); save(); render(true);
+  }));
+}
+function actSheet(d, preset) {
+  let type = preset || 'walk', min = 45;
+  sheet(`<h3 class="sh-t">سجّل نشاط</h3><p class="small">كل 3 دقايق = 2 XP (لحد 100 XP في اليوم)</p>
+    <div class="pills" id="atype">${ACTS.map(([v, l, i]) => `<button data-v="${v}" class="${v === type ? 'on' : ''}">${ic(i)}${l}</button>`).join('')}</div>
+    <div class="field col" id="aname" style="display:none"><label>اسم النشاط</label><input class="wide" id="anameIn" placeholder="مثلًا: تنس، يوجا..."></div>
+    <div class="small" style="margin-top:12px">كام دقيقة؟</div>
+    <div class="pills" id="amin">${[15, 30, 45, 60, 90, 120].map(v => `<button data-v="${v}" class="${v === min ? 'on' : ''}"><span class="ltr">${v}</span></button>`).join('')}</div>
+    <div class="picker" style="margin-top:10px"><div class="l">أو اكتب الدقايق</div><input id="aminIn" inputmode="numeric" value="${min}">
+    <div class="pm"><button data-astep="-5">${ic('minus')}</button><button data-astep="5">${ic('plus')}</button></div></div>
+    <button class="btn" id="aSave">${ic('check')}حفظ</button>`, (m, close) => {
+    const minIn = m.querySelector('#aminIn');
+    const pick = (box, v) => m.querySelectorAll(box + ' button').forEach(b => b.classList.toggle('on', b.dataset.v === String(v)));
+    m.querySelectorAll('#atype button').forEach(b => b.addEventListener('click', () => {
+      type = b.dataset.v; pick('#atype', type); m.querySelector('#aname').style.display = type === 'other' ? '' : 'none';
+    }));
+    m.querySelectorAll('#amin button').forEach(b => b.addEventListener('click', () => { minIn.value = b.dataset.v; pick('#amin', b.dataset.v); }));
+    m.querySelectorAll('[data-astep]').forEach(b => b.addEventListener('click', () => {
+      minIn.value = Math.max(5, (num(minIn.value) || 0) + +b.dataset.astep); pick('#amin', minIn.value);
+    }));
+    minIn.addEventListener('input', () => pick('#amin', minIn.value));
+    m.querySelector('#aSave').addEventListener('click', () => {
+      const v = Math.round(num(minIn.value) || 0);
+      if (v < 1 || v > 600) return toast('اكتب عدد دقايق صح');
+      const a = { id: Date.now().toString(36), d, type, min: v };
+      if (type === 'other') a.name = m.querySelector('#anameIn').value.trim() || 'نشاط';
+      S.acts = (S.acts || []).concat([a]); save(); close(); render(true);
+    });
+  });
+}
+
+// ------------------------------------------------------------------ add an exercise to today's workout
+function addExSheet(d) {
+  let n = 3;
+  const inPlan = sessionPlan(d).map(it => it.k);
+  const lib = Object.keys(EX).filter(k => !inPlan.includes(k));
+  sheet(`<h3 class="sh-t">أضف تمرين للنهارده</h3>
+    <div class="small">عدد المجموعات</div>
+    <div class="pills" id="xn">${[2, 3, 4].map(v => `<button data-v="${v}" class="${v === n ? 'on' : ''}"><span class="ltr">${v}</span></button>`).join('')}</div>
+    <div class="field"><label>العدات</label><input id="xreps" value="10–12" style="width:120px"></div>
+    <h3 style="margin-top:14px">من مكتبة التمارين</h3>
+    <div class="searchbox">${ic('search')}<input id="xq" placeholder="دوّر على تمرين..."></div>
+    <div class="exlist">${lib.map(k => `<button class="exrow" data-add="${k}"><img src="${img(EX[k].img)}" alt=""><div class="n"><b>${EX[k].name}</b><span>${EX[k].ar}</span></div><span class="addic">${ic('plus')}</span></button>`).join('')}</div>
+    <h3 style="margin-top:14px">أو تمرين باسم من عندك</h3>
+    <div class="field"><input class="wide" id="xname" placeholder="مثلًا: Hip Abduction Machine"><button class="btn sm" id="xcustom">${ic('plus')}أضف</button></div>`, (m, close) => {
+    m.querySelectorAll('#xn button').forEach(b => b.addEventListener('click', () => {
+      n = +b.dataset.v; m.querySelectorAll('#xn button').forEach(x => x.classList.toggle('on', x === b));
+    }));
+    const add = k => {
+      const reps = (m.querySelector('#xreps').value.trim() || '10–12').replace(/-/g, '–');
+      const l = getLog(d); if (!l.w) l.w = currentType(d);
+      l.extra = (l.extra || []).concat([{ k, n, reps }]); save(); close(); render(true); toast('اتضاف للتمارين');
+    };
+    m.querySelectorAll('[data-add]').forEach(b => b.addEventListener('click', () => add(b.dataset.add)));
+    m.querySelector('#xq').addEventListener('input', e => {
+      const q = e.target.value.trim().toLowerCase();
+      m.querySelectorAll('[data-add]').forEach(b => { const x = EX[b.dataset.add]; b.style.display = !q || (x.name + ' ' + x.ar).toLowerCase().includes(q) ? '' : 'none'; });
+    });
+    m.querySelector('#xcustom').addEventListener('click', () => {
+      const name = m.querySelector('#xname').value.trim();
+      if (!name) return toast('اكتب اسم التمرين');
+      const k = 'c_' + name.toLowerCase().replace(/\s+/g, '_').replace(/[^\w؀-ۿ_]/g, '').slice(0, 40);
+      S.custom = S.custom || {}; S.custom[k] = name;
+      add(k);
+    });
+  });
+}
 
 // ------------------------------------------------------------------ WORKOUT (one step at a time)
 let restEnd = 0, restTotal = 60, restInt = null, animInt = null;
@@ -534,26 +675,20 @@ function vFlow(arg) {
       <button class="choice" data-neck="y"><span class="dot" style="background:var(--warn)">${nr('5–6')}</span><span><b>فيها شوية ألم</b><small>نص الوزن في تمارين الجزء العلوي</small></span></button>
       <button class="choice" data-neck="r"><span class="dot" style="background:var(--bad)">${nr('7–10')}</span><span><b>وجعاني</b><small>مشي وإطالة بس • ${xpT(60)} على القرار الذكي</small></span></button>`;
   }
-  const simple = (title, sub, items, mark, label) => h + `<h1>${title}</h1><p class="small">${sub}</p>` +
-    items.map(([im, t, s]) => `<div class="item">${im ? `<img class="photo" src="${img(im)}" alt="">` : ''}<div class="tx"><b>${t}</b><div class="small">${nr(s)}</div></div></div>`).join('') +
+  const moves = (title, sub, items, mark, label) => h + `<h1>${title}</h1><p class="small">${sub}</p>` +
+    items.map(([im, t, e, s], j) => `<div class="item">${media(im, '', '', 'sm')}<div class="tx"><span class="num-badge">${j + 1}</span><div><b>${t}</b> ${en(e)}<div class="small">${nr(s)}</div></div></div></div>`).join('') +
     `<div class="stickybar"><button class="btn ok" data-mark="${mark}">${ic('check')}${label}</button></div>`;
-  if (st.id === 'warm') return simple('الإحماء', '7 دقايق • ' + xpT(20), [
-    ['Bicycling_Stationary', 'عجلة أو مشي', '5 دقايق خفيف'],
-    ['Cat_Stretch', 'القطة والجمل • ' + en('Cat-Cow'), '8 مرات ببطء'],
-    [null, 'لف الكتف لورا', '10 مرات'],
-    [null, 'شد الدقن لورا • ' + en('Chin Tucks'), '8 مرات، واثبت 3 ثواني من غير ألم']], 'warm', 'خلصت الإحماء');
+  if (st.id === 'warm') return moves('الإحماء', '7 دقايق • ' + xpT(20), WARM, 'warm', 'خلصت الإحماء');
   if (st.id === 'cardio') {
-    const [cm, inc] = cardioFor(w);
-    return h + `<h1>مشي تريدميل</h1><p class="small">${xpT(20)}</p><img class="photo" src="${img('Walking_Treadmill')}" alt="">
-      <div class="tiles"><div class="tile"><b>${cm}</b><span>دقيقة</span></div><div class="tile"><b>${inc}</b><span>الميل</span></div><div class="tile"><b>4.5–5.5</b><span>كم/س</span></div></div>
+    const [cm, inc] = cardioFor(w), done = log.cardioMin || cm;
+    return h + `<h1>مشي تريدميل</h1><p class="small">الهدف ${cm} دقيقة • لو مشيت أكتر تاخد XP زيادة</p>${media('Walking_Treadmill')}
+      <div class="tiles"><div class="tile"><b>${cm}</b><span>دقيقة (الهدف)</span></div><div class="tile"><b>${inc}</b><span>الميل</span></div><div class="tile"><b>4.5–5.5</b><span>كم/س</span></div></div>
       <div class="callout">${ic('info')}<span>تقدر تتكلم بجمل كاملة، بس متقدرش تغني. متمسكش في التريدميل.</span></div>
-      <div class="stickybar"><button class="btn ok" data-mark="cardio">${ic('check')}خلصت المشي</button></div>`;
+      <div class="picker" style="margin-top:12px"><div class="l">مشيت كام دقيقة؟</div><input id="cmin" inputmode="numeric" value="${done}">
+      <div class="pm"><button data-cstep="-5">${ic('minus')}</button><button data-cstep="5">${ic('plus')}</button></div></div>
+      <div class="stickybar"><button class="btn ok" id="cardioDone">${ic('check')}خلصت المشي</button></div>`;
   }
-  if (st.id === 'cool') return simple('التبريد', 'كل إطالة 20–30 ثانية • ' + xpT(20), [
-    ['Kneeling_Hip_Flexor', 'مقدمة الحوض', 'ركبة على الأرض وادفع الحوض لقدام. كل رجل.'],
-    ['Hamstring_Stretch', 'الفخذ الخلفي', 'ضهرك مفرود وميل من الحوض.'],
-    [null, 'الصدر على الباب', 'ساعدك على الباب وخد خطوة لقدام.'],
-    [null, 'جانب الرقبة', 'بهدوء جدًا. لو بتوجع ← وقّف.']], 'cool', 'خلصت');
+  if (st.id === 'cool') return moves('التبريد', '5 دقايق • ' + xpT(20), COOL, 'cool', 'خلصت');
   if (st.id === 'done') {
     const exs = steps.filter(x => x.id === 'ex'), tp = (S.photos || []).filter(p => p.d === d).pop();
     return h + `<div class="burst">${ic('trophy')}</div><h1 class="center">المهمة خلصت!</h1>
@@ -562,24 +697,24 @@ function vFlow(arg) {
         : photoBtn('phDone', 'gold', 'صوّر نفسك • ' + xpT(20))}
       <h2>اللي عملته</h2><div class="list-plain">${exs.map(x => {
         const a = (log.ex[x.it.k] || []).filter(y => y.d);
-        return `<div class="r"><span class="k">${en(EX[x.it.k].name)}</span><span class="v ltr">${a.length ? a.map(y => (y.kg ? y.kg + '×' : '') + (y.r || '?')).join('  ') : '—'}</span></div>`;
-      }).join('')}</div>
+        return `<div class="r"><span class="k">${en(esc(exInfo(x.it.k).name))}</span><span class="v ltr">${a.length ? a.map(y => (y.kg ? y.kg + '×' : '') + (y.r || '?')).join('  ') : '—'}</span></div>`;
+      }).join('')}${log.cardio ? `<div class="r"><span class="k">مشي تريدميل</span><span class="v ltr">${log.cardioMin || cardioFor(w)[0]} min</span></div>` : ''}</div>
       <div class="note info"><span class="ic">${ic('msg')}</span><span>قولّي على الشات: كان عامل إزاي؟ وهل أي تمرين ضايق رقبتك؟</span></div>
       <button class="btn" data-go="today">رجوع</button>`;
   }
   // exercise
-  const it = st.it, e = EX[it.k], sets = setsFor(log, it);
+  const it = st.it, e = exInfo(it.k), sets = setsFor(log, it);
   const cur = sets.findIndex((x, j) => j < it.n && !x.d);
   const doneSets = sets.slice(0, it.n).filter(x => x.d);
   const exNo = steps.filter((x, j) => x.id === 'ex' && j <= i).length, exTot = steps.filter(x => x.id === 'ex').length;
-  const nx = steps[i + 1], nextName = nx.id === 'ex' ? en(EX[nx.it.k].name) : nx.id === 'cardio' ? 'مشي تريدميل' : 'كمّل';
-  const altKey = it.k !== it.orig ? it.orig : ALT[it.orig];
-  h += `<div class="media" id="anim"><span class="chip glass cap" id="cap">البداية</span>
-    <img class="a" src="${img(e.img)}" alt=""><img class="b" src="${img(e.img, 1)}" alt="">
-    <div class="ttl"><div class="s">تمرين ${exNo} من ${exTot}${it.k !== it.orig ? ' • بديل' : ''}</div><div class="n">${e.name}</div><div class="s">${e.ar}</div></div></div>
-    <div class="actions">
-      <button class="act" id="howBtn">${ic('book')}<span>الطريقة</span></button>
+  const nx = steps[i + 1], nextName = nx.id === 'ex' ? en(esc(exInfo(nx.it.k).name)) : nx.id === 'cardio' ? 'مشي تريدميل' : 'كمّل';
+  const altKey = it.extra ? null : it.k !== it.orig ? it.orig : ALT[it.orig];
+  const tagTxt = it.extra ? ' • إضافي' : it.k !== it.orig ? ' • بديل' : '';
+  h += media(e.img, esc(e.name), `تمرين ${exNo} من ${exTot}${tagTxt}${e.img ? '' : ' • ' + e.ar}`, 'big')
+    + `<div class="actions">
+      ${e.steps.length ? `<button class="act" id="howBtn">${ic('book')}<span>الطريقة<small>${e.ar}</small></span></button>` : ''}
       ${altKey ? `<button class="act" id="swapBtn">${ic('swap')}<span>${it.k !== it.orig ? 'رجّع الأصلي' : 'بديل'}<small class="ltr">${EX[altKey].name}</small></span></button>` : ''}
+      ${it.extra ? `<button class="act" id="removeEx">${ic('trash')}<span>شيل التمرين<small>من تمرين النهارده</small></span></button>` : ''}
     </div>`;
   if (log.neck === 'y' && UPPER_KEYS.includes(it.k)) h += `<div class="hint y">${ic('shield')}<span>رقبتك النهارده: استخدم نص وزنك العادي.</span></div>`;
   if (!doneSets.length) h += hintFor(it, d);
@@ -620,16 +755,27 @@ BIND.flow = arg => {
     if (log.neck === 'r') { toast('النهارده مشي وإطالة بس'); go('flow:' + steps.findIndex(x => x.id === 'cardio')); } else next();
   }));
   $$('[data-mark]').forEach(b => b.addEventListener('click', () => { log[b.dataset.mark] = 1; save(); next(); }));
+  startFlip();
+  if (st.id === 'cardio') {
+    const cin = $('#cmin');
+    $$('[data-cstep]').forEach(b => b.addEventListener('click', () => { cin.value = Math.max(0, (num(cin.value) || 0) + +b.dataset.cstep); }));
+    $('#cardioDone').addEventListener('click', () => { log.cardio = 1; log.cardioMin = Math.round(num(cin.value) || cardioFor(progWeek(d))[0]); save(); next(); });
+  }
   if (st.id === 'done') {
     fillPhotos(); bindPhotoInput('phDone', () => render(true));
     $$('[data-photo]').forEach(el => el.addEventListener('click', () => viewPhoto(el.dataset.photo)));
   }
   if (st.id !== 'ex') return;
   const it = st.it, sets = setsFor(log, it);
-  const an = $('#anim'), cap = $('#cap');
-  animInt = setInterval(() => { an.classList.toggle('flip'); cap.textContent = an.classList.contains('flip') ? 'النهاية' : 'البداية'; }, 1700);
-  $('#howBtn').addEventListener('click', () => howSheet(it.k));
+  const hb = $('#howBtn'); if (hb) hb.addEventListener('click', () => howSheet(it.k));
   const swb = $('#swapBtn'); if (swb) swb.addEventListener('click', () => swapSheet(d, it));
+  const rm = $('#removeEx');
+  if (rm) rm.addEventListener('click', () => {
+    if (!confirm('تشيل التمرين ده من تمرين النهارده؟')) return;
+    const idx = (log.extra || []).findIndex(x => x.k === it.k);
+    if (idx >= 0) log.extra.splice(idx, 1);
+    delete log.ex[it.k]; save(); stopTimers(); render(); window.scrollTo(0, 0);
+  });
   $$('[data-step]').forEach(b => b.addEventListener('click', () => {
     const inp = $('#' + b.dataset.step); inp.value = fmt(Math.max(0, (num(inp.value) || 0) + parseFloat(b.dataset.v)));
   }));
@@ -640,7 +786,7 @@ BIND.flow = arg => {
     const cur = sets.findIndex((x, j) => j < it.n && !x.d), kg = $('#kg'), r = $('#r');
     sets[cur] = { d: 1, kg: kg ? kg.value.trim() : '', r: r.value.trim() };
     save();
-    restTotal = parseInt(EX[it.k].rest, 10) || 60; restEnd = Date.now() + restTotal * 1000;   // rest after every set, then moves on by itself
+    restTotal = parseInt(exInfo(it.k).rest, 10) || 60; restEnd = Date.now() + restTotal * 1000;   // rest after every set, then moves on by itself
     rerender();
   });
   const un = $('#undo');
@@ -742,12 +888,17 @@ function weekMsg(w) {
       const a = (l.ex[it.k] || []).filter(x => x.d);
       if (!a.length) return null;
       const kgs = a.map(x => num(x.kg)).filter(x => x != null);
-      return `${EX[it.k].name} ${kgs.length ? fmt(Math.max(...kgs)) + 'kg' : ''} × ${a.map(x => x.r || '?').join('/')}`;
+      return `${exInfo(it.k).name} ${kgs.length ? fmt(Math.max(...kgs)) + 'kg' : ''} × ${a.map(x => x.r || '?').join('/')}`;
     }).filter(Boolean);
-    const swaps = Object.values(l.swap || {}).map(k => EX[k].name);
-    t += `   • ${nice(d)} ${{ g: '🟢', y: '🟡', r: '🔴' }[l.neck] || ''}: ${first.join('، ') || '—'}${l.cardio ? ' + مشي' : ''}${swaps.length ? ' (بديل: ' + swaps.join('، ') + ')' : ''}\n`;
+    const swaps = Object.values(l.swap || {}).map(k => exInfo(k).name);
+    const extras = (l.extra || []).map(x => exInfo(x.k).name);
+    t += `   • ${nice(d)} ${{ g: '🟢', y: '🟡', r: '🔴' }[l.neck] || ''}: ${first.join('، ') || '—'}${l.cardio ? ` + مشي ${l.cardioMin || cardioFor(w)[0]}د` : ''}`
+      + `${swaps.length ? ' (بديل: ' + swaps.join('، ') + ')' : ''}${extras.length ? ' (إضافي: ' + extras.join('، ') + ')' : ''}\n`;
   });
-  t += `🚶 أيام المشي: ${dates.filter(d => S.walks[d]).length}\n`;
+  const acts = (S.acts || []).filter(a => dates.includes(a.d));
+  const byType = {};
+  acts.forEach(a => { const n = actName(a); byType[n] = (byType[n] || 0) + (+a.min || 0); });
+  t += `🚶 النشاط: ${acts.length ? Object.entries(byType).map(([n, mm]) => `${n} ${mm}د`).join(' • ') + ` (المجموع ${acts.reduce((s, a) => s + (+a.min || 0), 0)}د)` : '—'}\n`;
   if (S.meas.length && weekOf(S.meas[S.meas.length - 1].d) === w) t += `📏 الوسط: ${S.meas[S.meas.length - 1].waist || '—'} سم\n`;
   t += `👣 متوسط الخطوات: ${m.steps || '—'}\n🍽️ الالتزام بالأكل: ${m.food || '—'}/10\n`;
   t += `⚡ الطاقة: ${m.energy || '—'}/10 • 😋 الجوع: ${m.hunger || '—'}/10\n😴 النوم: ${m.sleep || '—'} ساعات\n🦒 الرقبة: ${m.neck || '—'}/10\n`;
@@ -823,7 +974,7 @@ function vTrophies() {
   h += TROPHIES.map(t => { const on = S.trophies && S.trophies[t[0]]; return `<div class="trophy ${on ? 'on' : ''}"><div class="ti">${t[1]}</div><b>${t[2]}</b><span>${t[3]}</span></div>`; }).join('') + '</div>';
   h += `<details class="acc" style="margin-top:18px"><summary><span class="ico">${ic('layers')}</span>الرتب<span class="chev">${ic('chev')}</span></summary><div class="in">
     <div class="ranks">${RANKS.map(r => `<div>${rankBadge(r, 'sm' + (r[1] === s.rank[1] ? ' cur' : ''))}<span>${r[2]}</span><small>LV ${r[0]}</small></div>`).join('')}</div></div></details>`;
-  h += `<details class="acc"><summary><span class="ico">${ic('bolt')}</span>إزاي تجمع XP<span class="chev">${ic('chev')}</span></summary><div class="in">${[['كل مجموعة', 10], ['الإحماء • المشي • التبريد', 20], ['تمرين كامل', 100], ['رقم قياسي', 25], ['يوم مشي', 30],
+  h += `<details class="acc"><summary><span class="ico">${ic('bolt')}</span>إزاي تجمع XP<span class="chev">${ic('chev')}</span></summary><div class="in">${[['كل مجموعة', 10], ['الإحماء • المشي • التبريد', 20], ['تمرين كامل', 100], ['رقم قياسي', 25], ['أي نشاط: كل 3 دقايق', 2], ['مشي تريدميل أكتر من الهدف: كل 3 دقايق', 2],
     ['تسجيل الوزن', 10], ['المقاسات', 50], ['صورة تقدّم (مرة في اليوم)', 20], ['رسالة الأسبوع', 30], ['رقبتك وجعتك وريّحتها', 60]].map(([a, b]) => `<div class="xprow"><span>${a}</span><b>+${b}</b></div>`).join('')}</div></details>`;
   return h;
 }
@@ -913,18 +1064,14 @@ BIND.edit = () => {
 function vExi(k) {
   const e = EX[k]; if (!e) return vMe();
   return `<button class="back" data-go="me">${ic('back')}رجوع</button>
-    <div class="media" id="anim"><span class="chip glass cap" id="cap">البداية</span><img class="a" src="${img(e.img)}" alt=""><img class="b" src="${img(e.img, 1)}" alt="">
-    <div class="ttl"><div class="n">${e.name}</div><div class="s">${e.ar} • ${e.machine}</div></div></div>
+    ${media(e.img, e.name, e.ar + ' • ' + e.machine, 'big')}
     <div class="tiles" style="grid-template-columns:1fr 1fr"><div class="tile"><b>${nr(e.sets)}</b><span>مجموعات</span></div><div class="tile"><b>${nr(e.rest)}</b><span>راحة</span></div></div>
     <div class="card"><div class="small">${e.muscles}</div><ol class="steps-ol">${e.steps.map(x => `<li>${nr(x)}</li>`).join('')}</ol>
     <h3 style="color:var(--bad)">تجنّب</h3><ul class="steps-ol">${e.avoid.map(x => `<li>${x}</li>`).join('')}</ul>
     ${e.neck ? `<div class="callout">${ic('shield')}<span>${e.neck}</span></div>` : ''}
     ${ALT[k] ? `<button class="act wide" data-go="exi:${ALT[k]}">${ic('swap')}<span>البديل<small class="ltr">${EX[ALT[k]].name}</small></span></button>` : ''}</div>`;
 }
-BIND.exi = () => {
-  const an = $('#anim'), cap = $('#cap');
-  if (an) animInt = setInterval(() => { an.classList.toggle('flip'); cap.textContent = an.classList.contains('flip') ? 'النهاية' : 'البداية'; }, 1700);
-};
+BIND.exi = () => startFlip();
 
 // ------------------------------------------------------------------ misc
 function copyText(t) {

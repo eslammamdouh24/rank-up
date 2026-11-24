@@ -1,13 +1,16 @@
 /* Offline support: everything is saved on the phone after the first open.
    Pages/code: try the network first (so updates arrive), fall back to the saved copy offline.
    Photos: use the saved copy. */
-const CACHE = 'gym-v4';
+const CACHE = 'gym-v5';
 importScripts('data.js');
-const IMGS = new Set(['Bicycling_Stationary_0', 'Cat_Stretch_0', 'Cat_Stretch_1', 'Walking_Treadmill_0',
-  'Kneeling_Hip_Flexor_0', 'Hamstring_Stretch_0', 'Side_Neck_Stretch_0']);
-Object.values(DATA.EX).forEach(e => { IMGS.add(e.img + '_0'); IMGS.add(e.img + '_1'); });
+// warm-up, cool-down and treadmill pictures (start + end), plus every exercise in the library
+const IMGS = new Set();
+['Bicycling_Stationary', 'Cat_Stretch', 'Shoulder_Circles', 'Walking_Treadmill', 'Kneeling_Hip_Flexor', 'Hamstring_Stretch',
+  'Dynamic_Chest_Stretch', 'Side_Neck_Stretch'].forEach(n => { IMGS.add(n + '_0.jpg'); IMGS.add(n + '_1.jpg'); });
+Object.values(DATA.EX).forEach(e => { IMGS.add(e.img + '_0.jpg'); IMGS.add(e.img + '_1.jpg'); });
+IMGS.add('chin_tuck_0.svg'); IMGS.add('chin_tuck_1.svg');
 const ASSETS = ['./', 'index.html', 'app.js', 'data.js', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png',
-  ...[...IMGS].map(n => 'img/' + n + '.jpg')];
+  ...[...IMGS].map(n => 'img/' + n)];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
