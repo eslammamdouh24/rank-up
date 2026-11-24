@@ -399,6 +399,20 @@ button.chip { border:0; }
 .necksum { display:flex; gap:12px; align-items:center; margin-top:10px; font-weight:700; font-size:14.5px; flex-wrap:wrap; }
 .necksum b { margin-inline-start:auto; }
 
+/* ---------- notifications ---------- */
+.nrow { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--border); }
+.nlab { flex:1; min-width:0; display:flex; flex-direction:column; }
+.nlab small { color:var(--muted); font-size:12.5px; }
+.nlab select { font:inherit; font-size:12.5px; background:var(--surface-2); color:var(--text); border:0; border-radius:8px; padding:1px 4px; }
+.nrow input[type=time] { width:96px; height:40px; font:inherit; font-size:15px; font-weight:700; border:0; border-radius:12px; background:var(--surface-2); color:var(--text); text-align:center; direction:ltr; }
+.nrow input[type=time]:disabled { opacity:.4; }
+.switch { position:relative; width:46px; height:28px; flex:none; }
+.switch input { opacity:0; width:0; height:0; }
+.switch span { position:absolute; inset:0; background:var(--surface-3); border-radius:99px; transition:.2s; }
+.switch span::before { content:""; position:absolute; width:22px; height:22px; top:3px; right:3px; background:#fff; border-radius:50%; transition:.2s; box-shadow:0 1px 3px rgba(0,0,0,.3); }
+.switch input:checked + span { background:var(--ok); }
+.switch input:checked + span::before { transform:translateX(-18px); }
+
 /* ---------- nav ---------- */
 nav { position:fixed; left:14px; right:14px; bottom:calc(env(safe-area-inset-bottom) + 10px); z-index:5; display:flex; justify-content:center; }
 nav .wrap { display:flex; width:100%; max-width:452px; background:var(--glass); backdrop-filter:blur(18px) saturate(1.6); -webkit-backdrop-filter:blur(18px) saturate(1.6); border:1px solid var(--border); border-radius:26px; padding:6px; box-shadow:0 12px 30px rgba(0,0,0,.25); }
@@ -431,6 +445,7 @@ nav button.on svg.i { stroke:var(--a1); }
   <button data-tab="trophies"></button>
   <button data-tab="me"></button>
 </div></nav>
+<script src="config.js"></script>
 <script src="data.js"></script>
 <script src="app.js"></script>
 </body>

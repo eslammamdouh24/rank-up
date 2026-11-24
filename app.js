@@ -627,7 +627,7 @@ function bindFood(d) {
 }
 
 // ------------------------------------------------------------------ strength history
-function history(k) {
+function exHistory(k) {
   return Object.keys(S.logs).sort().map(d => {
     const done = ((S.logs[d].ex || {})[k] || []).filter(x => x.d);
     if (!done.length) return null;
@@ -649,9 +649,9 @@ function lineChart(vs, h = 100, small = false) {
     <circle cx="${last[0]}" cy="${last[1]}" r="${small ? 4 : 5}" fill="#3fa9ff" stroke="var(--surface)" stroke-width="2" vector-effect="non-scaling-stroke"/></svg></div>`;
 }
 function pStrength() {
-  const keys = [...new Set(Object.values(S.logs).flatMap(l => Object.keys(l.ex || {})))].filter(k => history(k).length);
+  const keys = [...new Set(Object.values(S.logs).flatMap(l => Object.keys(l.ex || {})))].filter(k => exHistory(k).length);
   if (!keys.length) return `<div class="empty">${ic('dumbbell')}<b>لسه مفيش تمارين متسجلة</b><span>بعد أول تمرين هتشوف هنا قوتك بتزيد إزاي في كل تمرين.</span></div>`;
-  const rows = keys.map(k => { const hs = history(k), kgs = hs.map(x => x.kg).filter(x => x != null); return { k, hs, kgs, last: hs[hs.length - 1].d }; })
+  const rows = keys.map(k => { const hs = exHistory(k), kgs = hs.map(x => x.kg).filter(x => x != null); return { k, hs, kgs, last: hs[hs.length - 1].d }; })
     .sort((a, b) => a.last < b.last ? 1 : -1);
   return `<p class="small">أعلى وزن في كل جلسة. دوس على أي تمرين تشوف التفاصيل.</p>` + rows.map(({ k, hs, kgs }) => {
     const e = exInfo(k), first = kgs[0], best = kgs.length ? Math.max(...kgs) : null;
@@ -661,7 +661,7 @@ function pStrength() {
   }).join('');
 }
 function strengthCard(k) {
-  const hs = history(k); if (!hs.length) return '';
+  const hs = exHistory(k); if (!hs.length) return '';
   const kgs = hs.map(x => x.kg).filter(x => x != null);
   return `<h2>تقدّمك في التمرين ده</h2><div class="card">${kgs.length >= 2 ? lineChart(kgs) : ''}
     <div class="list-plain flat">${hs.slice().reverse().slice(0, 10).map(x => `<div class="r"><span class="k">${nice(x.d)}</span><span class="v ltr">${x.kg != null ? fmt(x.kg) + ' kg × ' : ''}${esc(x.reps)}</span></div>`).join('')}</div></div>`;
@@ -1181,6 +1181,7 @@ function mSettings() {
   return `<div class="card"><div class="small" style="margin-bottom:4px">المظهر</div>
     <div class="seg">${[['dark', 'moon', 'غامق'], ['light', 'sun', 'فاتح'], ['auto', 'auto', 'تلقائي']].map(([v, i, l]) => `<button data-theme-set="${v}" class="${S.theme === v ? 'on' : ''}">${ic(i)}${l}</button>`).join('')}</div>
     <div class="field"><label>أول يوم في البرنامج</label><input type="date" id="start" value="${S.start}" style="width:160px;font-size:15px"></div></div>
+    <h2>الإشعارات</h2>${notifCard()}
     <h2>بياناتك</h2>
     <div class="note info"><span class="ic">${ic('info')}</span><span>كل بياناتك وصورك على الموبايل ده بس. احفظ نسخة كل أسبوعين في iCloud Drive.</span></div>
     <button class="btn ghost" id="exp">${ic('down')}حفظ نسخة احتياطية</button>
@@ -1191,7 +1192,8 @@ BIND.me = () => {
   bindSeg('mtabs', v => { meTab = v; });
   const gs = $('#goSettings'); if (gs) gs.addEventListener('click', () => { meTab = 'settings'; render(); });
   $$('[data-theme-set]').forEach(b => b.addEventListener('click', () => { S.theme = b.dataset.themeSet; save(); applyTheme(); render(true); }));
-  const st = $('#start'); if (st) st.addEventListener('change', e => { if (e.target.value) { S.start = e.target.value; save(); toast('اتحفظ'); } });
+  const st = $('#start'); if (st) st.addEventListener('change', e => { if (e.target.value) { S.start = e.target.value; save(); toast('اتحفظ'); syncPush(); } });
+  bindNotif();
   const ex = $('#exp'); if (ex) ex.addEventListener('click', exportData);
   const im = $('#imp'); if (im) im.addEventListener('change', importData);
 };
@@ -1279,7 +1281,92 @@ function beep() {
     o.connect(g).connect(actx.destination); o.start(at); o.stop(at + 0.2);
   });
 }
+// ------------------------------------------------------------------ push notifications (sent by the RANK UP push server)
+const NOTIF = [['gym', 'الجيم', 'سبت • اتنين • أربع', '18:00', 30], ['walk', 'المشي', 'حد • تلات', '19:00', 0], ['weigh', 'الوزن', 'كل يوم', '10:30', 0],
+  ['report', 'رسالة الخميس', 'كل خميس', '20:00', 0], ['backup', 'النسخة الاحتياطية', 'كل أسبوعين (جمعة)', '12:00', 0]];
+function notifPrefs() {
+  const p = (S.notif && S.notif.prefs) || {}, o = {};
+  NOTIF.forEach(([k, , , t, b]) => { o[k] = Object.assign({ on: true, time: t, before: b }, p[k] || {}); });
+  return o;
+}
+const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent);
+const standalone = () => navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+const pushFetch = (path, body) => fetch(self.PUSH_URL + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+function b64uBytes(s) {
+  const t = s.split('-').join('+').split('_').join('/');
+  const b = atob(t + '='.repeat((4 - t.length % 4) % 4));
+  return Uint8Array.from(b, c => c.charCodeAt(0));
+}
+async function currentSub() { try { return await (await navigator.serviceWorker.ready).pushManager.getSubscription(); } catch (e) { return null; } }
+function notifCard() {
+  const on = S.notif && S.notif.on;
+  if (!self.PUSH_URL) return `<div class="note info"><span class="ic">${ic('info')}</span><span>الإشعارات لسه بتتجهز.</span></div>`;
+  if (!pushSupported() || (isIOS() && !standalone()))
+    return `<div class="note warn"><span class="ic">${ic('info')}</span><span>${isIOS() ? 'الإشعارات بتشتغل بس لما تفتح RANK UP من أيقونته على الشاشة الرئيسية (مش من Safari).' : 'المتصفح ده مش بيدعم الإشعارات.'}</span></div>`;
+  if (Notification.permission === 'denied')
+    return `<div class="note warn"><span class="ic">${ic('info')}</span><span>الإشعارات مقفولة. افتحها من إعدادات الآيفون: Settings ← Notifications ← RANK UP.</span></div>`;
+  if (!on) return `<div class="card"><p class="small" style="margin-top:0">تفكير بمواعيد الجيم والمشي والوزن ورسالة الخميس، حتى لو التطبيق مقفول.</p><button class="btn" id="nOn">${ic('bolt')}فعّل الإشعارات</button></div>`;
+  const p = notifPrefs();
+  return `<div class="card">${NOTIF.map(([k, l, sub]) => `<div class="nrow">
+      <label class="switch"><input type="checkbox" data-non="${k}" ${p[k].on ? 'checked' : ''}><span></span></label>
+      <div class="nlab"><b>${l}</b><small>${sub}${k === 'gym' ? ` • قبلها <select data-nbefore="gym">${[0, 15, 30, 60].map(m => `<option value="${m}" ${+p.gym.before === m ? 'selected' : ''}>${m} د</option>`).join('')}</select>` : ''}</small></div>
+      <input type="time" data-ntime="${k}" value="${p[k].time}" ${p[k].on ? '' : 'disabled'}></div>`).join('')}
+    <button class="btn ghost" id="nTest">${ic('bolt')}جرّب إشعار دلوقتي</button>
+    <button class="tlink muted" id="nOff" style="width:100%;justify-content:center">${ic('x')}وقّف كل الإشعارات</button></div>`;
+}
+async function syncPush() {
+  if (!self.PUSH_URL || !(S.notif && S.notif.on)) return;
+  const sub = await currentSub(); if (!sub) return;
+  try {
+    await pushFetch('/subscribe', { subscription: sub.toJSON(), prefs: notifPrefs(), tz: Intl.DateTimeFormat().resolvedOptions().timeZone, start: S.start });
+  } catch (e) { toast('مقدرتش أوصل لسيرفر الإشعارات. هحاول تاني بعدين'); }
+}
+async function enablePush() {
+  const perm = await Notification.requestPermission();   // must be the first thing after the tap (iPhone rule)
+  if (perm !== 'granted') { toast('الإشعارات مش مسموحة'); render(true); return; }
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const { key } = await (await fetch(self.PUSH_URL + '/vapid')).json();
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uBytes(key) });
+    S.notif = { on: true, prefs: notifPrefs() }; save();
+    await syncPush(); toast('الإشعارات اتفعّلت ✓'); render(true);
+  } catch (e) { toast('حصلت مشكلة في تفعيل الإشعارات'); }
+}
+async function disablePush() {
+  const sub = await currentSub();
+  if (sub) { try { await pushFetch('/unsubscribe', { endpoint: sub.endpoint }); } catch (e) { /* offline */ } await sub.unsubscribe().catch(() => {}); }
+  S.notif = Object.assign({}, S.notif, { on: false }); save(); toast('الإشعارات اتوقفت'); render(true);
+}
+let notifTimer = null;
+function bindNotif() {
+  const on = $('#nOn'); if (on) on.addEventListener('click', enablePush);
+  const off = $('#nOff'); if (off) off.addEventListener('click', () => { if (confirm('توقف كل الإشعارات؟')) disablePush(); });
+  const tst = $('#nTest');
+  if (tst) tst.addEventListener('click', async () => {
+    const sub = await currentSub(); if (!sub) return toast('فعّل الإشعارات الأول');
+    try { await syncPush(); const r = await (await pushFetch('/test', { endpoint: sub.endpoint })).json(); toast(r.ok ? 'اتبعت. اقفل التطبيق وشوف' : 'مقدرتش أبعت'); } catch (e) { toast('مفيش نت'); }
+  });
+  const changed = () => { clearTimeout(notifTimer); notifTimer = setTimeout(syncPush, 600); };
+  $$('[data-non]').forEach(x => x.addEventListener('change', () => { const p = notifPrefs(); p[x.dataset.non].on = x.checked; S.notif.prefs = p; save(); changed(); render(true); }));
+  $$('[data-ntime]').forEach(x => x.addEventListener('change', () => { if (!x.value) return; const p = notifPrefs(); p[x.dataset.ntime].time = x.value; S.notif.prefs = p; save(); changed(); toast('اتحفظ'); }));
+  $$('[data-nbefore]').forEach(x => x.addEventListener('change', () => { const p = notifPrefs(); p.gym.before = +x.value; S.notif.prefs = p; save(); changed(); toast('اتحفظ'); }));
+}
+// open the right screen from a notification (./#weight, ./#week, ./#settings)
+function openFromLink(href) {
+  const h = (href ? new URL(href).hash : location.hash).replace('#', '');
+  if (!h) return;
+  if (h === 'weight' || h === 'week') { progTab = h; go('progress', { top: true }); }
+  else if (h === 'settings') { meTab = 'settings'; go('me', { top: true }); }
+  history.replaceState(null, '', location.pathname + location.search);
+}
+window.addEventListener('hashchange', () => openFromLink());
+if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e => { if (e.data && e.data.open) openFromLink(e.data.open); });
+
 function toast(t) { const el = document.createElement('div'); el.className = 'toast'; el.textContent = t; document.body.appendChild(el); setTimeout(() => el.remove(), 1800); }
 
 render();
+openFromLink();
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+setTimeout(syncPush, 3000);   // keep the server's copy of your reminder times up to date
