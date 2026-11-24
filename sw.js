@@ -1,7 +1,7 @@
 /* Offline support: everything is saved on the phone after the first open.
    Pages/code: try the network first (so updates arrive), fall back to the saved copy offline.
    Photos: use the saved copy. */
-const CACHE = 'gym-v5';
+const CACHE = 'gym-v6';
 importScripts('data.js');
 // warm-up, cool-down and treadmill pictures (start + end), plus every exercise in the library
 const IMGS = new Set();
@@ -26,10 +26,10 @@ self.addEventListener('fetch', e => {
     e.respondWith(caches.match(req).then(r => r || fetch(req)));
     return;
   }
+  // always ask the server for the newest version (no stale browser copy), fall back to the saved copy offline
   e.respondWith(
-    fetch(req).then(res => {
-      const copy = res.clone();
-      caches.open(CACHE).then(c => c.put(req, copy));
+    fetch(req.url, { cache: 'no-cache', credentials: 'same-origin' }).then(res => {
+      if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }
       return res;
     }).catch(() => caches.match(req, { ignoreSearch: true }))
   );
