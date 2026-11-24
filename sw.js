@@ -1,7 +1,7 @@
 /* Offline support: everything is saved on the phone after the first open.
    Pages/code: try the network first (so updates arrive), fall back to the saved copy offline.
    Photos: use the saved copy. */
-const CACHE = 'gym-v3';
+const CACHE = 'gym-v4';
 importScripts('data.js');
 const IMGS = new Set(['Bicycling_Stationary_0', 'Cat_Stretch_0', 'Cat_Stretch_1', 'Walking_Treadmill_0',
   'Kneeling_Hip_Flexor_0', 'Hamstring_Stretch_0', 'Side_Neck_Stretch_0']);

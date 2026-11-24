@@ -1,10 +1,18 @@
-/* RANK UP: simple offline gym tracker with a game layer. All data stays on this phone (localStorage). */
+/* RANK UP: simple offline gym tracker with a game layer. All data stays on this phone (localStorage + IndexedDB). */
 'use strict';
 const { EX, WORKOUTS, UPPER, LOWER } = DATA;
 const KEY = 'gymApp.v1';
 const DAYS = ['الحد', 'الاتنين', 'التلات', 'الأربع', 'الخميس', 'الجمعة', 'السبت'];
 const LABEL = { A: 'Workout A', B: 'Workout B', U: 'Upper Day', L: 'Lower Day' };
-const UPPER_KEYS = ['chestpress', 'row', 'facepull', 'pulldown', 'dbbench', 'revfly', 'triceps', 'curl'];
+const UPPER_KEYS = ['chestpress', 'row', 'machinerow', 'facepull', 'pulldown', 'vbar', 'dbbench', 'revfly', 'triceps', 'triext', 'curl', 'dbcurl'];
+const BODYWEIGHT = ['deadbug', 'plank', 'bridge'];
+// The alternative for each exercise (tap "بديل" to swap it for today).
+const ALT = {
+  legpress: 'goblet', goblet: 'legpress', chestpress: 'dbbench', dbbench: 'chestpress', row: 'machinerow', machinerow: 'row',
+  legcurl: 'lyingcurl', lyingcurl: 'legcurl', facepull: 'revfly', revfly: 'facepull', deadbug: 'plank', plank: 'deadbug',
+  pulldown: 'vbar', vbar: 'pulldown', backext: 'bridge', bridge: 'backext', triceps: 'triext', triext: 'triceps',
+  curl: 'dbcurl', dbcurl: 'curl', legext: 'legpress',
+};
 
 // ------------------------------------------------------------------ icons (inline SVG)
 const P = {
@@ -13,6 +21,7 @@ const P = {
   trophy: '<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
   play: '<path d="M8 5v14l11-7z"/>',
+  pause: '<path d="M8 5v14M16 5v14"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   x: '<path d="M6 6l12 12M18 6L6 18"/>',
   back: '<path d="M9 6l6 6-6 6"/>',
@@ -22,7 +31,6 @@ const P = {
   scale: '<rect x="3.5" y="3.5" width="17" height="17" rx="4"/><path d="M8 10a4 4 0 0 1 8 0M12 10l1.8-2"/>',
   ruler: '<path d="M3 16.5L16.5 3 21 7.5 7.5 21z"/><path d="M7.5 12.5l2 2M10.5 9.5l2 2M13.5 6.5l2 2"/>',
   msg: '<path d="M4 5h16v11H9l-5 4z"/>',
-  gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   minus: '<path d="M5 12h14"/>',
   walk: '<circle cx="13" cy="4.5" r="2"/><path d="M9.5 21l2-6.5 3 2.5v4M8 12.5l2.2-4 3.8 1 2 3.2M11.5 14.5L10.6 10"/>',
@@ -46,10 +54,9 @@ const P = {
   layers: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>',
   images: '<rect x="3.5" y="4.5" width="17" height="15" rx="3"/><circle cx="9" cy="10" r="1.8"/><path d="M20.5 16l-5-5-8.5 8.5"/>',
   save: '<path d="M5 3.5h11l3.5 3.5v13.5h-14.5z"/><path d="M8 3.5V8h7M8 20.5V14h8v6.5"/>',
-  snow: '<path d="M12 2.5v19M4 7l16 10M20 7L4 17"/>',
-  bike: '<circle cx="6" cy="16.5" r="3.5"/><circle cx="18" cy="16.5" r="3.5"/><path d="M6 16.5l4-8h5l3 8M10 8.5h-2M13 8.5l-3 8"/>',
   camera: '<path d="M4 8h3l2-3h6l2 3h3v11.5H4z"/><circle cx="12" cy="13.5" r="3.5"/>',
   trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>',
+  skip: '<path d="M6 5l9 7-9 7z"/><path d="M18 5v14"/>',
 };
 const ic = (n, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${P[n] || ''}</svg>`;
 
@@ -86,6 +93,7 @@ const addDays = (s, n) => { const d = parseD(s); d.setDate(d.getDate() + n); ret
 const diffDays = (a, b) => Math.round((parseD(a) - parseD(b)) / 864e5);
 const today = () => iso(new Date());
 const nice = s => { const d = parseD(s); return DAYS[d.getDay()] + ' ' + d.getDate() + '/' + (d.getMonth() + 1); };
+const short = s => { const d = parseD(s); return d.getDate() + '/' + (d.getMonth() + 1); };
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const NUM = /(\d[\d.,]*%?(?:\s*[×–]\s*\d[\d.,]*%?)+)/g;
 const nr = s => String(s).split(/(<[^>]+>)/).map(p => p.startsWith('<') ? p : p.replace(NUM, '<span class="nr">$1</span>')).join('');
@@ -95,9 +103,9 @@ const fmt = x => (Math.round(x * 10) / 10).toString();
 const $ = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);
 const img = (name, n = 0) => `img/${name}_${n}.jpg`;
+const xpT = n => `<span class="ltr" style="font-weight:800">+${n} XP</span>`;
 
-// start weight: the number in the profile's start weight, otherwise the first weight recorded
-function startWeight() {
+function startWeight() {   // number in the profile's start weight, otherwise the first weight recorded
   const p = num(String(S.profile && S.profile.startW || '').replace(/[^\d.,]/g, ''));
   if (p != null) return p;
   const ds = Object.keys(S.weights).sort();
@@ -123,8 +131,13 @@ function planFor(type, w) {
   return items.map(({ k, s }) => {
     const p = parseSets(s);
     if (w <= 2 && type !== 'U' && type !== 'L') p.n = Math.min(2, p.n);
-    return Object.assign({ k, s: p.n + ' × ' + p.reps, bw: k === 'deadbug' || k === 'plank' }, p);
+    return Object.assign({ k, orig: k, s: p.n + ' × ' + p.reps, bw: BODYWEIGHT.includes(k) }, p);
   });
+}
+// today's plan with any swaps applied (the swapped exercise keeps the same sets and reps)
+function sessionPlan(d, type) {
+  const l = S.logs[d] || {}, sw = l.swap || {};
+  return planFor(type || l.w || currentType(d) || 'A', progWeek(d)).map(it => sw[it.k] ? Object.assign({}, it, { k: sw[it.k], bw: BODYWEIGHT.includes(sw[it.k]) }) : it);
 }
 function hasDone(d) { const l = S.logs[d]; return !!(l && l.ex && Object.values(l.ex).some(a => a.some(x => x.d))); }
 function scheduled(d) {
@@ -154,13 +167,11 @@ function hintFor(it, d) {
   if (!last) return it.bw ? '' : `<div class="hint">${ic('info')}<span>أول مرة؟ اختار وزن تخلّص بيه ${nr(it.reps)} ولسه فاضلك 3.</span></div>`;
   const kg = lastKg(it.k, d);
   const allTop = last.length >= it.n && last.every(x => (num(x.r) || 0) >= it.top);
-  if (!it.bw && !it.time && allTop && kg != null)
-    return `<div class="hint up">${ic('up')}<span>آخر مرة كسّرتها! زوّد أصغر درجة النهارده.</span></div>`;
+  if (!it.bw && !it.time && allTop && kg != null) return `<div class="hint up">${ic('up')}<span>آخر مرة كسّرتها! زوّد أصغر درجة النهارده.</span></div>`;
   return `<div class="hint">${ic('undo')}<span>آخر مرة: ${kg != null ? `<span class="ltr">${fmt(kg)} kg</span> • ` : ''}<span class="ltr">${last.map(x => esc(x.r || '—')).join(' / ')}</span></span></div>`;
 }
 
-// ------------------------------------------------------------------ PHOTOS
-// The pictures live in the phone's IndexedDB (too big for normal storage); S.photos only keeps {id, date}.
+// ------------------------------------------------------------------ PHOTOS (IndexedDB; S.photos only keeps {id, date})
 let dbp = null;
 function pdb() {
   return dbp || (dbp = new Promise((res, rej) => {
@@ -179,7 +190,7 @@ const pput = o => ptx('readwrite', s => s.put(o));
 const pget = id => ptx('readonly', s => s.get(id));
 const pdel = id => ptx('readwrite', s => s.delete(id));
 const pall = () => ptx('readonly', s => s.getAll());
-function shrink(file) {   // resize to max 1080px and save as JPEG, so each photo is ~200 KB
+function shrink(file) {   // max 1080px JPEG, ~200 KB
   return new Promise((res, rej) => {
     const u = URL.createObjectURL(file), im = new Image();
     im.onload = () => {
@@ -202,24 +213,17 @@ function fillPhotos() { $$('img[data-pid]').forEach(el => pget(el.dataset.pid).t
 const photoBtn = (id, cls, label) => `<label class="btn ${cls}">${ic('camera')}${label}<input type="file" id="${id}" accept="image/*" hidden></label>`;
 function bindPhotoInput(id, after) {
   const inp = $('#' + id); if (!inp) return;
-  inp.addEventListener('change', () => {
-    const f = inp.files[0]; if (!f) return;
-    addPhoto(f).then(after).catch(() => toast('مقدرتش أحفظ الصورة'));
-  });
+  inp.addEventListener('change', () => { const f = inp.files[0]; if (f) addPhoto(f).then(after).catch(() => toast('مقدرتش أحفظ الصورة')); });
 }
 function viewPhoto(id) {
   pget(id).then(p => {
     if (!p) return;
-    const m = document.createElement('div');
-    m.className = 'modal viewer';
-    m.innerHTML = `<div class="vbox"><img src="${p.data}" alt=""><div class="vbar"><b>${nice(p.d)}</b>
-      <button class="tlink" id="pdel" style="color:var(--bad)">${ic('trash')}مسح</button><button class="tlink" id="pclose">${ic('x')}قفل</button></div></div>`;
-    document.body.appendChild(m);
-    m.addEventListener('click', e => { if (e.target === m) m.remove(); });
-    m.querySelector('#pclose').addEventListener('click', () => m.remove());
-    m.querySelector('#pdel').addEventListener('click', () => {
-      if (!confirm('تمسح الصورة دي؟ مش هتقدر ترجّعها.')) return;
-      pdel(id).then(() => { S.photos = (S.photos || []).filter(x => x.id !== id); save(); m.remove(); render(); });
+    sheet(`<img class="viewimg" src="${p.data}" alt=""><div class="sheet-row"><b>${nice(p.d)}</b>
+      <button class="btn ghost sm danger" id="pdel">${ic('trash')}مسح</button></div>`, (m, close) => {
+      m.querySelector('#pdel').addEventListener('click', () => {
+        if (!confirm('تمسح الصورة دي؟ مش هتقدر ترجّعها.')) return;
+        pdel(id).then(() => { S.photos = (S.photos || []).filter(x => x.id !== id); save(); close(); render(true); });
+      });
     });
   });
 }
@@ -252,12 +256,11 @@ const TROPHIES = [
   ['all12', '👑', 'الأسطورة', '12 أسبوع كاملين', s => s.fullWeeks >= 12],
 ];
 const needFor = l => 50 + 25 * l;
-const xpT = n => `<span class="ltr" style="font-weight:800">+${n} XP</span>`;
 function levelFrom(xp) { let l = 1, rest = xp; while (l < 50 && rest >= needFor(l)) { rest -= needFor(l); l++; } return { level: l, into: rest, need: needFor(l) }; }
 function rankOf(l) { let r = RANKS[0]; RANKS.forEach(x => { if (l >= x[0]) r = x; }); return r; }
 function isFull(d) {
   const l = S.logs[d]; if (!l || !l.w || !l.ex) return false;
-  return !!(l.warm && l.cardio && l.cool) && planFor(l.w, progWeek(d)).every(it => (l.ex[it.k] || []).filter(x => x.d).length >= it.n);
+  return !!(l.warm && l.cardio && l.cool) && sessionPlan(d).every(it => (l.ex[it.k] || []).filter(x => x.d).length >= it.n);
 }
 const isSmart = d => { const l = S.logs[d]; return !!(l && l.neck === 'r' && l.cardio); };
 const isWorkout = d => hasDone(d) || isSmart(d);
@@ -286,7 +289,7 @@ function stats() {
   const walks = Object.values(S.walks).filter(Boolean).length;
   const reports = Object.values(S.weekly).filter(m => m && m.sent).length;
   const wds = Object.keys(S.weights).sort();
-  const photos = new Set((S.photos || []).map(p => p.d)).size;   // XP once per day
+  const photos = new Set((S.photos || []).map(p => p.d)).size;
   xp += prs * XP.pr + walks * XP.walk + wds.length * XP.weight + S.meas.length * XP.meas + reports * XP.report + photos * XP.photo;
   const fullWeeks = Object.keys(wk).filter(w => wk[w] >= 3).length;
   const cw = weekOf(today());
@@ -298,16 +301,15 @@ function stats() {
   wds.forEach(d => { wRun = pd && diffDays(d, pd) === 1 ? wRun + 1 : 1; wBest = Math.max(wBest, wRun); pd = d; });
   const lv = levelFrom(xp);
   const latest = wds.length ? S.weights[wds[wds.length - 1]] : null, sw = startWeight();
-  const lost = latest != null && sw != null ? sw - latest : 0;
-  return Object.assign({ xp, prs, workouts, full, smart, walks, reports, fullWeeks, photos, lost, streak, bestStreak, wBest, meas: S.meas.length,
-    latest: wds.length ? S.weights[wds[wds.length - 1]] : null, rank: rankOf(lv.level) }, lv);
+  return Object.assign({ xp, prs, workouts, full, smart, walks, reports, fullWeeks, photos, streak, bestStreak, wBest, latest,
+    meas: S.meas.length, lost: latest != null && sw != null ? sw - latest : 0, rank: rankOf(lv.level) }, lv);
 }
 const rankBadge = (r, cls = '') => `<div class="rank ${cls}" style="--c1:${r[3]};--c2:${r[4]}">${r[1]}</div>`;
 function playerBar(s) {
-  return `<div class="player" data-go="trophies">${rankBadge(s.rank)}<div class="pinfo">
+  return `<button class="player" data-go="trophies">${rankBadge(s.rank)}<div class="pinfo">
     <div class="lvl"><b>LV ${s.level}</b><span class="rn">${s.rank[2]}</span>${s.streak ? `<span class="streak">${ic('flame')}${s.streak}</span>` : ''}</div>
     <div class="xpbar"><i style="width:${Math.round(s.into / s.need * 100)}%"></i></div>
-    <div class="xpt"><span class="ltr">${s.into} / ${s.need} XP</span> للمستوى الجاي</div></div></div>`;
+    <div class="xpt"><span class="ltr">${s.into} / ${s.need} XP</span> للمستوى الجاي</div></div></button>`;
 }
 const QUEUE = [];
 function award() {
@@ -321,12 +323,10 @@ function award() {
   S.lastXP = s.xp;
   if (s.level > S.seenLevel) {
     const r = rankOf(s.level), old = rankOf(S.seenLevel);
-    QUEUE.push(r[1] !== old[1] ? { badge: r, t: 'رتبة جديدة!', sub: `رتبة ${r[1]} • ${r[2]}` } : { lv: s.level, t: '<span class="ltr">LEVEL UP</span>', sub: 'وصلت مستوى ' + s.level });
+    QUEUE.push(r[1] !== old[1] ? { badge: r, t: 'رتبة جديدة!', sub: `رتبة ${r[1]} • ${r[2]}` } : { lv: 1, t: '<span class="ltr">LEVEL UP</span>', sub: 'وصلت مستوى ' + s.level });
     S.seenLevel = s.level;
   }
-  TROPHIES.forEach(t => {
-    if (!S.trophies[t[0]] && t[4](s)) { S.trophies[t[0]] = today(); QUEUE.push({ e: t[1], t: t[2], sub: 'كأس جديد • ' + t[3] }); }
-  });
+  TROPHIES.forEach(t => { if (!S.trophies[t[0]] && t[4](s)) { S.trophies[t[0]] = today(); QUEUE.push({ e: t[1], t: t[2], sub: 'كأس جديد • ' + t[3] }); } });
   save(); showQueue();
 }
 function showQueue() {
@@ -344,28 +344,56 @@ function xpPop(n) {
   setTimeout(() => el.remove(), 1500);
 }
 
-// ------------------------------------------------------------------ routing
+// ------------------------------------------------------------------ bottom sheet
+function sheet(html, onMount) {
+  const m = document.createElement('div');
+  m.className = 'sheet-bg';
+  m.innerHTML = `<div class="sheet" role="dialog"><div class="grab"></div>${html}</div>`;
+  document.body.appendChild(m);
+  requestAnimationFrame(() => m.classList.add('open'));
+  const close = () => { m.classList.remove('open'); setTimeout(() => m.remove(), 220); };
+  m.addEventListener('click', e => { if (e.target === m) close(); });
+  m.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', close));
+  if (onMount) onMount(m, close);
+  return close;
+}
+
+// ------------------------------------------------------------------ routing (each screen remembers where you scrolled)
 const NAV = { today: ['dumbbell', 'النهارده'], progress: ['chart', 'تقدّمي'], trophies: ['trophy', 'الإنجازات'], me: ['user', 'أنا'] };
-$$('nav button').forEach(b => { const [i, l] = NAV[b.dataset.tab]; b.innerHTML = ic(i) + l; b.addEventListener('click', () => go(b.dataset.tab)); });
+const TAB_OF = { flow: 'today', exi: 'me', meas: 'progress', edit: 'me' };
 let route = 'today';
-function go(r) { route = r; stopTimers(); render(); window.scrollTo(0, 0); }
-function render() {
+const scrollMem = {};
+$$('nav button').forEach(b => {
+  const [i, l] = NAV[b.dataset.tab]; b.innerHTML = ic(i) + l;
+  b.addEventListener('click', () => go(b.dataset.tab, { top: route === b.dataset.tab }));   // tap the open tab again = back to top
+});
+function go(r, opt = {}) {
+  scrollMem[route] = window.scrollY;
+  route = r; stopTimers(); render();
+  window.scrollTo(0, opt.top || r.startsWith('flow') ? 0 : (scrollMem[r] || 0));
+}
+function render(keepScroll) {
+  const y = window.scrollY;
   const [name, arg] = route.split(':');
-  const tab = { flow: 'today', info: 'me', exi: 'me', meas: 'progress', msg: 'progress', edit: 'me' }[name] || name;
+  const tab = TAB_OF[name] || name;
   $$('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
   document.body.classList.toggle('focus', name === 'flow');
   keepAwake(name === 'flow');
-  const v = { today: vToday, flow: vFlow, progress: vProgress, meas: vMeas, msg: vMsg, me: vMe, edit: vEdit, exi: vExi, trophies: vTrophies }[name] || vToday;
+  const v = { today: vToday, flow: vFlow, progress: vProgress, meas: vMeas, me: vMe, edit: vEdit, exi: vExi, trophies: vTrophies }[name] || vToday;
   $('#app').innerHTML = v(arg);
-  $$('[data-go]').forEach(el => el.addEventListener('click', () => go(el.dataset.go)));
+  $$('#app [data-go]').forEach(el => el.addEventListener('click', () => { if (el.dataset.ptab) progTab = el.dataset.ptab; go(el.dataset.go); }));
   const b = BIND[name]; if (b) b(arg);
+  if (keepScroll) window.scrollTo(0, y);
   award();
 }
 const BIND = {};
+const header = (title, right = '') => `<div class="ph"><h1>${title}</h1>${right}</div>`;
+const segs = (id, cur, items) => `<div class="seg" id="${id}">${items.map(([v, l]) => `<button data-v="${v}" class="${cur === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+function bindSeg(id, set) { $$('#' + id + ' button').forEach(b => b.addEventListener('click', () => { set(b.dataset.v); window.scrollTo(0, 0); render(); })); }
 
 // ------------------------------------------------------------------ TODAY
 function flowSteps(d) {
-  const plan = planFor(currentType(d), progWeek(d));
+  const plan = sessionPlan(d, currentType(d));
   return [{ id: 'neck' }, { id: 'warm' }, ...plan.map(it => ({ id: 'ex', it })), { id: 'cardio' }, { id: 'cool' }, { id: 'done' }];
 }
 function stepDone(st, log) {
@@ -375,84 +403,130 @@ function stepDone(st, log) {
   if (st.id === 'done') return false;
   return !!log[st.id];
 }
-const STEP_META = {
-  neck: ['الرقبة النهارده', 'سؤال واحد', null, 'shield'],
-  warm: ['الإحماء', '7 دقايق', 'Bicycling_Stationary'],
-  cardio: ['مشي تريدميل', '', 'Walking_Treadmill'],
-  cool: ['التبريد', '5 دقايق', 'Kneeling_Hip_Flexor'],
-};
+function started(d) { const l = S.logs[d]; return !!(l && (l.neck || l.warm || l.cardio || hasDone(d))); }
+function cancelWorkout(d) {
+  if (!confirm('هيتمسح كل اللي سجّلته في تمرين النهارده. متأكد؟')) return false;
+  delete S.logs[d]; save(); toast('اتلغى تمرين النهارده'); return true;
+}
+function row(i, st, log, w, nextIdx) {
+  const dn = stepDone(st, log);
+  let th, t, sub, tag = '';
+  if (st.id === 'ex') {
+    const e = EX[st.it.k];
+    th = `<img class="th" src="${img(e.img)}" alt="">`; t = en(e.name); sub = nr(st.it.s);
+    if (st.it.k !== st.it.orig) tag = '<span class="tag">بديل</span>';
+    if ((log && log.skip || {})[st.it.k]) tag = '<span class="tag">اتخطّى</span>';
+  } else {
+    const m = { neck: ['الرقبة النهارده', 'سؤال واحد', null, 'shield'], warm: ['الإحماء', '7 دقايق', 'Bicycling_Stationary'],
+      cardio: ['مشي تريدميل', cardioFor(w)[0] + ' دقيقة', 'Walking_Treadmill'], cool: ['التبريد', '5 دقايق', 'Kneeling_Hip_Flexor'] }[st.id];
+    th = m[2] ? `<img class="th" src="${img(m[2])}" alt="">` : `<span class="th">${ic(m[3])}</span>`; t = m[0]; sub = m[1];
+  }
+  return `<li class="${dn ? 'done' : ''} ${i === nextIdx ? 'next' : ''}" data-go="flow:${i}">${th}<span class="nm">${t}${tag}<small>${sub}</small></span><span class="st">${dn ? ic('check') : ''}</span></li>`;
+}
 function vToday() {
   const d = today(), w0 = weekOf(d), w = progWeek(d), type = currentType(d), s = stats();
-  let h = `<div class="eyebrow"><div><div class="brand">RANK UP</div><span class="d">${nice(d)}</span></div><span class="chip">${ic('cal')}أسبوع ${w} من 12</span></div>`;
+  let h = `<div class="topbar"><div><div class="brand">RANK UP</div><div class="d">${nice(d)}</div></div><span class="chip">${ic('cal')}أسبوع ${w} من 12</span></div>`;
   h += playerBar(s);
-  if (w0 < 1) h += `<div class="note info"><span class="ic">${ic('info')}</span><span>البرنامج بيبدأ ${nice(S.start)}. تقدر تجرّب من دلوقتي.</span></div>`;
+  if (w0 < 1) h += `<p class="small center" style="margin:10px 0 0">البرنامج بيبدأ ${nice(S.start)} • تقدر تجرّب من دلوقتي</p>`;
   if (s.workouts >= 1 && (!S.lastBackup || diffDays(d, S.lastBackup) >= 14))
     h += `<div class="note warn"><span class="ic">${ic('save')}</span><span>بقالك أسبوعين من غير نسخة احتياطية</span><button class="go" id="backupNow">احفظ</button></div>`;
 
-  if (!type) {
+  if (!type) {   // walk / rest day
     const wd = parseD(d).getDay(), walk = wd === 0 || wd === 2, walked = S.walks[d];
     h += `<div class="quest" style="--bg-img:url(${img('Walking_Treadmill')})">
       <span class="chip glass lab">${ic('target')}مهمة النهارده</span>
       <div class="t">${walk ? 'امشي' : 'يوم راحة'}</div>
       <div class="meta"><span class="chip glass">${ic('walk')}${walk ? nr('30–45 دقيقة') : 'مشي خفيف لو حابب'}</span><span class="chip gold">${ic('bolt')}${xpT(30)}</span></div>
       <button class="btn ${walked ? 'ok' : 'white'}" id="walk">${walked ? ic('check') + 'تمت المهمة' : 'مشيت'}</button></div>`;
-    if (!S.weights[d]) h += `<div class="note info"><span class="ic">${ic('scale')}</span><span>سجّل وزنك النهارده • ${xpT(10)}</span><button class="go" data-go="progress">سجّل</button></div>`;
-    if (wd === 4) h += `<div class="note warn"><span class="ic">${ic('msg')}</span><span>ابعت متابعة الأسبوع • ${xpT(30)}</span><button class="go" data-go="msg">جهّزها</button></div>`;
-    h += `<button class="btn ghost" data-pick="${rotation(w)[0]}">${ic('dumbbell')}اتمرنت النهارده برضه؟</button>`;
+    h += '<h2>مهام صغيرة</h2>';
+    h += `<button class="task" data-go="progress" data-ptab="weight">${ic('scale')}<span>سجّل وزنك النهارده</span>${S.weights[d] ? `<span class="ok-ic">${ic('check')}</span>` : xpT(10)}</button>`;
+    if (wd === 4) h += `<button class="task" data-go="progress" data-ptab="week">${ic('msg')}<span>ابعت متابعة الأسبوع</span>${xpT(30)}</button>`;
+    h += `<button class="task" data-pick="${rotation(w)[0]}">${ic('dumbbell')}<span>اتمرنت النهارده برضه؟</span>${ic('chev')}</button>`;
     return h;
   }
 
   const log = S.logs[d], steps = flowSteps(d), real = steps.filter(x => x.id !== 'done');
   const nDone = real.filter(x => stepDone(x, log)).length, finished = nDone === real.length;
-  const exs = steps.filter(x => x.id === 'ex'), sch = scheduled(d);
-  const maxXP = exs.reduce((a, x) => a + x.it.n * XP.set, 0) + 3 * XP.step + XP.full;
-  const nextIdx = steps.findIndex(x => x.id !== 'done' && !stepDone(x, log));
-  h += `<div class="quest" style="--bg-img:url(${img(EX[exs[0].it.k].img)})">
+  const exIdx = steps.map((x, i) => x.id === 'ex' ? i : -1).filter(i => i >= 0);
+  const sch = scheduled(d), nextIdx = steps.findIndex(x => x.id !== 'done' && !stepDone(x, log));
+  const maxXP = exIdx.reduce((a, i) => a + steps[i].it.n * XP.set, 0) + 3 * XP.step + XP.full;
+  h += `<div class="quest" style="--bg-img:url(${img(EX[steps[exIdx[0]].it.k].img)})">
     <span class="chip glass lab">${ic('target')}${sch && sch.note && !(log && log.w) ? sch.note : 'مهمة النهارده'}</span>
     <div class="t en2">${LABEL[type]}</div>
-    <div class="meta"><span class="chip glass">${ic('dumbbell')}${exs.length} تمارين</span><span class="chip glass">${ic('cal')}60 د</span><span class="chip gold">${ic('bolt')}${xpT(maxXP)}</span></div>
+    <div class="meta"><span class="chip glass">${ic('dumbbell')}${exIdx.length} تمارين</span><span class="chip glass">${ic('cal')}60 د</span><span class="chip gold">${ic('bolt')}${xpT(maxXP)}</span></div>
     <div class="bar"><i style="width:${Math.round(nDone / real.length * 100)}%"></i></div>
-    <button class="btn white play" id="startBtn">${finished ? ic('trophy') + 'شوف النتيجة' : ic('play') + (nDone ? 'كمّل' : 'ابدأ')}</button></div>`;
-  h += '<h2>الخطوات</h2><ul class="tl">';
-  steps.forEach((st, i) => {
-    if (st.id === 'done') return;
-    const dn = stepDone(st, log);
-    let th, t, sub;
-    if (st.id === 'ex') { const e = EX[st.it.k]; th = `<img class="th" src="${img(e.img)}" alt="">`; t = en(e.name); sub = nr(st.it.s); }
-    else {
-      const m = STEP_META[st.id];
-      th = m[2] ? `<img class="th" src="${img(m[2])}" alt="">` : `<span class="th">${ic(m[3])}</span>`;
-      t = m[0]; sub = st.id === 'cardio' ? cardioFor(w)[0] + ' دقيقة' : m[1];
-    }
-    h += `<li class="${dn ? 'done' : ''} ${i === nextIdx ? 'next' : ''}" data-go="flow:${i}">${th}<span class="nm">${t}<small>${sub}</small></span><span class="st">${dn ? ic('check') : ''}</span></li>`;
-  });
-  h += '</ul>';
-  const other = (w <= 8 ? ['A', 'B'] : ['U', 'L']).find(x => x !== type);
-  h += `<p class="center"><button class="tlink" data-pick="${other}">${ic('swap')}بدّل لـ ${en(LABEL[other])}</button></p>`;
+    <button class="btn white play" id="startBtn">${finished ? ic('trophy') + 'شوف النتيجة' : ic('play') + (started(d) ? 'كمّل' : 'ابدأ')}</button>
+    ${started(d) && !finished ? `<button class="qlink" id="cancelW">${ic('x')}إلغاء التمرين</button>` : ''}</div>`;
+  const group = (title, ids) => `<h2>${title}</h2><ul class="tl">${ids.map(i => row(i, steps[i], log, w, nextIdx)).join('')}</ul>`;
+  h += group('قبل التمرين', [0, 1]);
+  h += group(`التمارين • ${exIdx.length}`, exIdx);
+  h += group('بعد التمرين', [steps.length - 3, steps.length - 2]);
+  if (!started(d)) {
+    const other = (w <= 8 ? ['A', 'B'] : ['U', 'L']).find(x => x !== type);
+    h += `<p class="center"><button class="tlink" data-pick="${other}">${ic('swap')}بدّل لـ ${en(LABEL[other])}</button></p>`;
+  }
   return h;
 }
 BIND.today = () => {
   const d = today();
   const sb = $('#startBtn');
   if (sb) sb.addEventListener('click', () => {
-    const log = S.logs[d], steps = flowSteps(d);
-    const i = steps.findIndex(x => x.id !== 'done' && !stepDone(x, log));
+    const log = S.logs[d], steps = flowSteps(d), i = steps.findIndex(x => x.id !== 'done' && !stepDone(x, log));
     go('flow:' + (i < 0 ? steps.length - 1 : i));
   });
-  $$('[data-pick]').forEach(b => b.addEventListener('click', () => { getLog(d).w = b.dataset.pick; save(); render(); }));
-  const wk = $('#walk'); if (wk) wk.addEventListener('click', () => { S.walks[d] = S.walks[d] ? 0 : 1; save(); render(); });
+  const cw = $('#cancelW'); if (cw) cw.addEventListener('click', () => { if (cancelWorkout(d)) render(true); });
+  $$('[data-pick]').forEach(b => b.addEventListener('click', () => { getLog(d).w = b.dataset.pick; save(); render(true); }));
+  const wk = $('#walk'); if (wk) wk.addEventListener('click', () => { S.walks[d] = S.walks[d] ? 0 : 1; save(); render(true); });
   const bk = $('#backupNow'); if (bk) bk.addEventListener('click', exportData);
 };
 
-// ------------------------------------------------------------------ FLOW (one step at a time)
+// ------------------------------------------------------------------ WORKOUT (one step at a time)
 let restEnd = 0, restTotal = 60, restInt = null, animInt = null;
 function stopTimers() { clearInterval(restInt); clearInterval(animInt); restEnd = 0; }
+function exitSheet(d) {
+  sheet(`<h3 class="sh-t">توقف التمرين؟</h3><p class="small">اللي سجّلته محفوظ. تقدر تكمّل في أي وقت النهارده.</p>
+    <button class="btn" data-close>${ic('play')}كمّل التمرين</button>
+    <button class="btn ghost" id="pauseW">${ic('pause')}وقّف دلوقتي وارجع</button>
+    <button class="btn ghost danger" id="cancelW2">${ic('trash')}إلغاء التمرين ومسح اللي اتسجّل</button>`, (m, close) => {
+    m.querySelector('#pauseW').addEventListener('click', () => { close(); go('today'); });
+    m.querySelector('#cancelW2').addEventListener('click', () => { if (cancelWorkout(d)) { close(); go('today', { top: true }); } });
+  });
+}
+function howSheet(k) {
+  const e = EX[k];
+  sheet(`<h3 class="sh-t ltr" style="text-align:right">${e.name}</h3><p class="small">${e.ar} • ${e.muscles}</p>
+    <div class="howrow"><img src="${img(e.img)}" alt=""><img src="${img(e.img, 1)}" alt=""></div>
+    <h3>الطريقة</h3><ol class="steps-ol">${e.steps.map(x => `<li>${nr(x)}</li>`).join('')}</ol>
+    <h3 style="color:var(--bad)">تجنّب</h3><ul class="steps-ol">${e.avoid.map(x => `<li>${x}</li>`).join('')}</ul>
+    ${e.neck ? `<div class="callout">${ic('shield')}<span>${e.neck}</span></div>` : ''}
+    <button class="btn ghost" data-close>تمام</button>`);
+}
+function swapSheet(d, it) {
+  const log = getLog(d), cur = it.k, orig = it.orig, swapped = cur !== orig, target = swapped ? orig : (ALT[orig] || null);
+  if (!target) return toast('مفيش بديل للتمرين ده');
+  const e = EX[target], done = (log.ex[cur] || []).some(x => x.d);
+  sheet(`<h3 class="sh-t">${swapped ? 'ترجع للتمرين الأصلي؟' : 'الجهاز مشغول؟ اعمل ده بداله'}</h3>
+    <div class="altcard"><img src="${img(e.img)}" alt=""><div><b class="ltr" style="display:block;text-align:right">${e.name}</b><span class="small">${e.ar}</span>
+    <div class="small">${e.muscles}</div></div></div>
+    <p class="small">نفس عدد المجموعات والعدات: ${nr(it.s)}</p>
+    ${done ? '<div class="callout">' + ic('info') + '<span>سجّلت مجموعات في التمرين الحالي. لو بدّلت، المجموعات دي هتفضل محسوبة.</span></div>' : ''}
+    <button class="btn" id="doSwap">${ic('swap')}${swapped ? 'رجّع ' + en(e.name) : 'بدّل لـ ' + en(e.name)}</button>
+    <button class="btn ghost" data-close>لأ، خليه</button>`, (m, close) => {
+    m.querySelector('#doSwap').addEventListener('click', () => {
+      log.swap = log.swap || {};
+      if (swapped) delete log.swap[orig]; else log.swap[orig] = target;
+      if (!log.w) log.w = currentType(d);
+      save(); close(); stopTimers(); render(); window.scrollTo(0, 0);
+    });
+  });
+}
 function vFlow(arg) {
   const d = today(), i = +arg, steps = flowSteps(d), st = steps[i], w = progWeek(d);
   if (!st) return vToday();
   const log = getLog(d); if (!log.w) log.w = currentType(d);
-  let h = `<div class="ftop"><button class="x" data-go="today" aria-label="خروج">${ic('x')}</button>
-    <div class="segs">${steps.map((s, j) => `<i class="${j === i ? 'cur' : stepDone(s, log) ? 'on' : ''}"></i>`).join('')}</div></div>`;
+  let h = `<div class="ftop"><button class="x" id="exitW" aria-label="خروج">${ic('x')}</button>
+    <div class="segs">${steps.map((s, j) => `<i class="${j === i ? 'cur' : stepDone(s, log) ? 'on' : ''}"></i>`).join('')}</div>
+    <span class="fcount">${Math.min(i + 1, steps.length - 1)}/${steps.length - 1}</span></div>`;
 
   if (st.id === 'neck') {
     return h + `<h1>رقبتك عاملة إيه؟</h1><p class="small">قيّم الألم النهارده من 0 لـ 10</p>
@@ -462,7 +536,7 @@ function vFlow(arg) {
   }
   const simple = (title, sub, items, mark, label) => h + `<h1>${title}</h1><p class="small">${sub}</p>` +
     items.map(([im, t, s]) => `<div class="item">${im ? `<img class="photo" src="${img(im)}" alt="">` : ''}<div class="tx"><b>${t}</b><div class="small">${nr(s)}</div></div></div>`).join('') +
-    `<button class="btn ok" data-mark="${mark}">${ic('check')}${label}</button>`;
+    `<div class="stickybar"><button class="btn ok" data-mark="${mark}">${ic('check')}${label}</button></div>`;
   if (st.id === 'warm') return simple('الإحماء', '7 دقايق • ' + xpT(20), [
     ['Bicycling_Stationary', 'عجلة أو مشي', '5 دقايق خفيف'],
     ['Cat_Stretch', 'القطة والجمل • ' + en('Cat-Cow'), '8 مرات ببطء'],
@@ -473,7 +547,7 @@ function vFlow(arg) {
     return h + `<h1>مشي تريدميل</h1><p class="small">${xpT(20)}</p><img class="photo" src="${img('Walking_Treadmill')}" alt="">
       <div class="tiles"><div class="tile"><b>${cm}</b><span>دقيقة</span></div><div class="tile"><b>${inc}</b><span>الميل</span></div><div class="tile"><b>4.5–5.5</b><span>كم/س</span></div></div>
       <div class="callout">${ic('info')}<span>تقدر تتكلم بجمل كاملة، بس متقدرش تغني. متمسكش في التريدميل.</span></div>
-      <button class="btn ok" data-mark="cardio">${ic('check')}خلصت المشي</button>`;
+      <div class="stickybar"><button class="btn ok" data-mark="cardio">${ic('check')}خلصت المشي</button></div>`;
   }
   if (st.id === 'cool') return simple('التبريد', 'كل إطالة 20–30 ثانية • ' + xpT(20), [
     ['Kneeling_Hip_Flexor', 'مقدمة الحوض', 'ركبة على الأرض وادفع الحوض لقدام. كل رجل.'],
@@ -481,15 +555,11 @@ function vFlow(arg) {
     [null, 'الصدر على الباب', 'ساعدك على الباب وخد خطوة لقدام.'],
     [null, 'جانب الرقبة', 'بهدوء جدًا. لو بتوجع ← وقّف.']], 'cool', 'خلصت');
   if (st.id === 'done') {
-    const exs = steps.filter(x => x.id === 'ex');
+    const exs = steps.filter(x => x.id === 'ex'), tp = (S.photos || []).filter(p => p.d === d).pop();
     return h + `<div class="burst">${ic('trophy')}</div><h1 class="center">المهمة خلصت!</h1>
       <div class="bigxp">+${dayXP(d)} XP</div><div style="margin-top:14px">${playerBar(stats())}</div>
-      ${(() => {
-        const tp = (S.photos || []).filter(p => p.d === d).pop();
-        return tp ? `<h2>صورة النهارده</h2><img class="photo tall" data-pid="${tp.id}" data-photo="${tp.id}" alt="">`
-          : `<div class="card" style="margin-top:14px"><b>صوّر نفسك</b><div class="small">نفس المكان والإضاءة والوقفة كل مرة، عشان تشوف الفرق.</div>
-             ${photoBtn('phDone', 'gold', 'صوّر نفسك • ' + xpT(20))}</div>`;
-      })()}
+      ${tp ? `<h2>صورة النهارده</h2><img class="photo tall" data-pid="${tp.id}" data-photo="${tp.id}" alt="">`
+        : photoBtn('phDone', 'gold', 'صوّر نفسك • ' + xpT(20))}
       <h2>اللي عملته</h2><div class="list-plain">${exs.map(x => {
         const a = (log.ex[x.it.k] || []).filter(y => y.d);
         return `<div class="r"><span class="k">${en(EX[x.it.k].name)}</span><span class="v ltr">${a.length ? a.map(y => (y.kg ? y.kg + '×' : '') + (y.r || '?')).join('  ') : '—'}</span></div>`;
@@ -501,13 +571,18 @@ function vFlow(arg) {
   const it = st.it, e = EX[it.k], sets = setsFor(log, it);
   const cur = sets.findIndex((x, j) => j < it.n && !x.d);
   const doneSets = sets.slice(0, it.n).filter(x => x.d);
-  const exIdx = steps.filter((x, j) => x.id === 'ex' && j <= i).length, exTot = steps.filter(x => x.id === 'ex').length;
+  const exNo = steps.filter((x, j) => x.id === 'ex' && j <= i).length, exTot = steps.filter(x => x.id === 'ex').length;
+  const nx = steps[i + 1], nextName = nx.id === 'ex' ? en(EX[nx.it.k].name) : nx.id === 'cardio' ? 'مشي تريدميل' : 'كمّل';
+  const altKey = it.k !== it.orig ? it.orig : ALT[it.orig];
   h += `<div class="media" id="anim"><span class="chip glass cap" id="cap">البداية</span>
     <img class="a" src="${img(e.img)}" alt=""><img class="b" src="${img(e.img, 1)}" alt="">
-    <div class="ttl"><div class="s">تمرين ${exIdx} من ${exTot} • ${e.ar}</div><div class="n">${e.name}</div></div></div>`;
+    <div class="ttl"><div class="s">تمرين ${exNo} من ${exTot}${it.k !== it.orig ? ' • بديل' : ''}</div><div class="n">${e.name}</div><div class="s">${e.ar}</div></div></div>
+    <div class="actions">
+      <button class="act" id="howBtn">${ic('book')}<span>الطريقة</span></button>
+      ${altKey ? `<button class="act" id="swapBtn">${ic('swap')}<span>${it.k !== it.orig ? 'رجّع الأصلي' : 'بديل'}<small class="ltr">${EX[altKey].name}</small></span></button>` : ''}
+    </div>`;
   if (log.neck === 'y' && UPPER_KEYS.includes(it.k)) h += `<div class="hint y">${ic('shield')}<span>رقبتك النهارده: استخدم نص وزنك العادي.</span></div>`;
   if (!doneSets.length) h += hintFor(it, d);
-  const nx = steps[i + 1], nextName = nx.id === 'ex' ? en(EX[nx.it.k].name) : nx.id === 'cardio' ? 'مشي تريدميل' : 'كمّل';
   h += `<div class="setcard"><div class="sethead"><b>${cur >= 0 ? `مجموعة ${cur + 1} من ${it.n}` : 'خلصت كل المجموعات'}</b>
     <div class="dots">${Array.from({ length: it.n }, (_, j) => `<i class="${sets[j].d ? 'on' : j === cur ? 'cur' : ''}"></i>`).join('')}</div></div>`;
   if (restEnd > Date.now()) {
@@ -515,8 +590,8 @@ function vFlow(arg) {
     h += `<div class="ring"><svg viewBox="0 0 210 210"><defs><linearGradient id="rg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7c5cff"/><stop offset="1" stop-color="#3fa9ff"/></linearGradient></defs>
       <circle class="bgc" cx="105" cy="105" r="92" fill="none" stroke-width="12"/>
       <circle class="fg" id="ringfg" cx="105" cy="105" r="92" fill="none" stroke-width="12" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="0"/></svg>
-      <div class="mid"><div class="tm" id="tm"></div><div class="lb">${cur >= 0 ? 'راحة' : 'راحة • الجاي ' + nextName}</div></div></div>
-      <button class="btn ghost" id="skipRest">${cur >= 0 ? 'تخطّي الراحة' : 'يلا على اللي بعده'}</button>`;
+      <div class="mid"><div class="tm" id="tm"></div><div class="lb">${cur >= 0 ? 'راحة' : 'الجاي: ' + nextName}</div></div></div>
+      <button class="btn ghost" id="skipRest">${ic('skip')}${cur >= 0 ? 'تخطّي الراحة' : 'يلا على اللي بعده'}</button>`;
   } else if (cur >= 0) {
     const lk = lastKg(it.k, d);
     const kgDef = sets[cur].kg || (doneSets.length ? doneSets[doneSets.length - 1].kg : (lk != null ? fmt(lk) : ''));
@@ -530,48 +605,44 @@ function vFlow(arg) {
     h += `<button class="btn" data-go="flow:${i + 1}">${nx.id === 'ex' ? 'التمرين الجاي' : 'كمّل'} ${ic('chev')}</button>`;
   }
   if (doneSets.length) h += `<div class="logged">${doneSets.map(x => `<span>${x.kg ? esc(x.kg) + 'kg × ' : ''}${esc(x.r)}</span>`).join('')}</div>
-    <p class="center" style="margin:6px 0 0"><button class="tlink" id="undo" style="color:var(--muted);font-size:14px">${ic('undo')}الغي آخر مجموعة</button></p>`;
+    <p class="center" style="margin:6px 0 0"><button class="tlink muted" id="undo">${ic('undo')}الغي آخر مجموعة</button></p>`;
   h += '</div>';
-  h += `<div class="how" id="how"><button class="howbtn" id="howBtn">${ic('book')}إزاي أعمله صح؟<span class="chev">${ic('chev')}</span></button><div class="body">
-    <ol>${e.steps.map(x => `<li>${nr(x)}</li>`).join('')}</ol>
-    <div class="bad"><h3>تجنّب</h3><ul>${e.avoid.map(x => `<li>${x}</li>`).join('')}</ul></div>
-    ${e.neck ? `<div class="callout">${ic('shield')}<span>${e.neck}</span></div>` : ''}
-    <div class="callout">${ic('swap')}<span>الجهاز مشغول؟ اعمل ${en(e.alt)}</span></div></div></div>`;
-  if (cur >= 0) h += `<p class="center"><button class="tlink" id="skipEx" style="color:var(--muted)">تخطّي التمرين ده</button></p>`;
+  if (cur >= 0) h += `<p class="center"><button class="tlink muted" id="skipEx">${ic('skip')}تخطّي التمرين ده</button></p>`;
   return h;
 }
 BIND.flow = arg => {
   const d = today(), i = +arg, steps = flowSteps(d), st = steps[i];
   if (!st) return;
   const log = getLog(d), next = () => go('flow:' + (i + 1));
+  $('#exitW').addEventListener('click', () => (st.id === 'done' ? go('today') : exitSheet(d)));
   $$('[data-neck]').forEach(b => b.addEventListener('click', () => {
     log.neck = b.dataset.neck; save();
     if (log.neck === 'r') { toast('النهارده مشي وإطالة بس'); go('flow:' + steps.findIndex(x => x.id === 'cardio')); } else next();
   }));
   $$('[data-mark]').forEach(b => b.addEventListener('click', () => { log[b.dataset.mark] = 1; save(); next(); }));
   if (st.id === 'done') {
-    fillPhotos(); bindPhotoInput('phDone', render);
+    fillPhotos(); bindPhotoInput('phDone', () => render(true));
     $$('[data-photo]').forEach(el => el.addEventListener('click', () => viewPhoto(el.dataset.photo)));
   }
   if (st.id !== 'ex') return;
   const it = st.it, sets = setsFor(log, it);
   const an = $('#anim'), cap = $('#cap');
-  if (an) animInt = setInterval(() => { an.classList.toggle('flip'); cap.textContent = an.classList.contains('flip') ? 'النهاية' : 'البداية'; }, 1700);
-  $('#howBtn').addEventListener('click', () => $('#how').classList.toggle('open'));
+  animInt = setInterval(() => { an.classList.toggle('flip'); cap.textContent = an.classList.contains('flip') ? 'النهاية' : 'البداية'; }, 1700);
+  $('#howBtn').addEventListener('click', () => howSheet(it.k));
+  const swb = $('#swapBtn'); if (swb) swb.addEventListener('click', () => swapSheet(d, it));
   $$('[data-step]').forEach(b => b.addEventListener('click', () => {
     const inp = $('#' + b.dataset.step); inp.value = fmt(Math.max(0, (num(inp.value) || 0) + parseFloat(b.dataset.v)));
   }));
-  const rerender = () => { const y = window.scrollY; clearInterval(animInt); clearInterval(restInt); render(); window.scrollTo(0, y); };
+  const rerender = () => { clearInterval(animInt); clearInterval(restInt); render(true); };
+  const allDone = () => sets.slice(0, it.n).every(x => x.d);
   const ds = $('#doneSet');
   if (ds) ds.addEventListener('click', () => {
     const cur = sets.findIndex((x, j) => j < it.n && !x.d), kg = $('#kg'), r = $('#r');
     sets[cur] = { d: 1, kg: kg ? kg.value.trim() : '', r: r.value.trim() };
     save();
-    // rest after every set, including the last one (then it moves on by itself)
-    restTotal = parseInt(EX[it.k].rest, 10) || 60; restEnd = Date.now() + restTotal * 1000;
+    restTotal = parseInt(EX[it.k].rest, 10) || 60; restEnd = Date.now() + restTotal * 1000;   // rest after every set, then moves on by itself
     rerender();
   });
-  const allDone = () => sets.slice(0, it.n).every(x => x.d);
   const un = $('#undo');
   if (un) un.addEventListener('click', () => {
     const done = sets.map((x, j) => x.d ? j : -1).filter(j => j >= 0);
@@ -593,7 +664,8 @@ BIND.flow = arg => {
   }
 };
 
-// ------------------------------------------------------------------ PROGRESS
+// ------------------------------------------------------------------ PROGRESS (4 sections)
+let progTab = 'weight';
 function weekAvg(w) {
   const vals = Object.entries(S.weights).filter(([d]) => weekOf(d) === w).map(([, v]) => v);
   return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
@@ -614,17 +686,26 @@ function chart() {
     <circle cx="${last[0]}" cy="${last[1]}" r="5" fill="#3fa9ff" stroke="var(--surface)" stroke-width="2" vector-effect="non-scaling-stroke"/></svg></div>`;
 }
 function vProgress() {
+  let h = header('تقدّمي') + segs('ptabs', progTab, [['weight', 'الوزن'], ['body', 'المقاسات'], ['photos', 'الصور'], ['week', 'الخميس']]);
+  return h + ({ weight: pWeight, body: pBody, photos: pPhotos, week: pWeek }[progTab] || pWeight)();
+}
+function pWeight() {
   const d = today(), w = weekOf(d), cur = weekAvg(w), prv = weekAvg(w - 1);
   const all = Object.keys(S.weights).sort(), lastW = all.length ? S.weights[all[all.length - 1]] : null;
   const delta = (a, b) => a != null && b != null ? `<b class="${a - b > 0 ? 'pos' : 'neg'}">${a - b > 0 ? '+' : ''}${fmt(a - b)}</b>` : '<b>—</b>';
-  let h = `<h1>تقدّمي</h1>
-    <div class="card"><div class="small" style="margin-bottom:8px">${ic('scale')} وزن النهارده • الصبح قبل الأكل</div>
+  let h = `<div class="card"><div class="small" style="margin-bottom:8px">وزن النهارده • الصبح قبل الأكل • ${xpT(10)}</div>
     <div class="winput"><input id="wIn" inputmode="decimal" placeholder="—" value="${S.weights[d] != null ? S.weights[d] : ''}"><button class="btn" id="wSave">حفظ</button></div>
     ${chart()}</div>
     <div class="tiles"><div class="tile"><b>${cur ? fmt(cur) : '—'}</b><span>متوسط الأسبوع</span></div>
     <div class="tile">${delta(cur, prv)}<span>عن اللي فات</span></div><div class="tile">${delta(lastW, startWeight())}<span>من البداية</span></div></div>`;
-  h += '<h2>المقاسات</h2>';
-  if (!S.meas.length) h += `<div class="note warn"><span class="ic">${ic('ruler')}</span><span>لسه مسجلتش مقاساتك. خدها قبل أول تمرين • ${xpT(50)}</span></div>`;
+  const ds = all.slice().reverse().slice(0, 14);
+  if (ds.length) h += '<h2>آخر الأوزان</h2><div class="list-plain">' + ds.map(x => `<div class="r"><span class="k">${nice(x)}</span>
+    <span class="v ltr">${S.weights[x]}</span><button class="iconbtn" data-delw="${x}" aria-label="مسح">${ic('x')}</button></div>`).join('') + '</div>';
+  return h;
+}
+function pBody() {
+  let h = '';
+  if (!S.meas.length) h += `<div class="empty">${ic('ruler')}<b>لسه مسجلتش مقاساتك</b><span>خدها قبل أول تمرين، وبعدها كل أسبوعين</span></div>`;
   else {
     const f = S.meas[0], l = S.meas[S.meas.length - 1], two = S.meas.length > 1;
     h += `<div class="card"><table class="mt"><tr><th></th><th>البداية</th>${two ? '<th>آخر مرة</th><th>الفرق</th>' : ''}</tr>` +
@@ -633,52 +714,20 @@ function vProgress() {
         return `<tr><td>${lb}</td><td>${a != null ? a : '—'}</td>${two ? `<td>${b != null ? b : '—'}</td><td class="ltr ${df < 0 ? 'neg' : df > 0 ? 'pos' : ''}">${df != null ? (df > 0 ? '+' : '') + fmt(df) : ''}</td>` : ''}</tr>`;
       }).join('') + `</table><div class="small" style="margin-top:6px">آخر تسجيل: ${nice(l.d)}</div></div>`;
   }
-  h += `<button class="btn ghost" data-go="meas">${ic('ruler')}سجّل مقاسات</button>`;
+  return h + `<button class="btn" data-go="meas">${ic('plus')}سجّل مقاسات • ${xpT(50)}</button>`;
+}
+function pPhotos() {
   const ph = (S.photos || []).slice().sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : 0);
-  const short = x => { const t = parseD(x); return t.getDate() + '/' + (t.getMonth() + 1); };
-  h += '<h2>صوري</h2>';
+  let h = '';
   if (ph.length >= 2) {
     const a = ph[0], b = ph[ph.length - 1];
     h += `<div class="compare"><figure data-photo="${b.id}"><img data-pid="${b.id}" alt=""><figcaption class="chip glass">دلوقتي • ${short(b.d)}</figcaption></figure>
       <figure data-photo="${a.id}"><img data-pid="${a.id}" alt=""><figcaption class="chip glass">البداية • ${short(a.d)}</figcaption></figure></div>`;
   }
   if (ph.length) h += `<div class="pgrid">${ph.slice().reverse().map(p => `<button class="pth" data-photo="${p.id}"><img data-pid="${p.id}" alt=""><span>${short(p.d)}</span></button>`).join('')}</div>`;
-  else h += `<div class="note info"><span class="ic">${ic('camera')}</span><span>صوّر نفسك بعد التمرين عشان تشوف الفرق مع الوقت. الصور بتفضل على موبايلك بس.</span></div>`;
-  h += photoBtn('phIn', 'ghost', 'صورة جديدة • ' + xpT(20));
-  h += `<h2>متابعة الأسبوع</h2><button class="btn ghost" data-go="msg">${ic('msg')}جهّز رسالة الخميس • ${xpT(30)}</button>`;
-  const ds = all.slice().reverse().slice(0, 10);
-  if (ds.length) h += '<h2>آخر الأوزان</h2><div class="list-plain">' + ds.map(x => `<div class="r"><span class="k">${nice(x)}</span>
-    <span class="v ltr">${S.weights[x]}</span><button class="tlink" style="color:var(--faint);padding:0" data-delw="${x}">${ic('x')}</button></div>`).join('') + '</div>';
-  return h;
+  else h += `<div class="empty">${ic('camera')}<b>مفيش صور لسه</b><span>صوّر نفسك بعد التمرين عشان تشوف الفرق. الصور بتفضل على موبايلك بس.</span></div>`;
+  return h + photoBtn('phIn', '', 'صورة جديدة • ' + xpT(20));
 }
-BIND.progress = () => {
-  const d = today();
-  $('#wSave').addEventListener('click', () => {
-    const v = num($('#wIn').value);
-    if (v == null || v < 30 || v > 300) return toast('اكتب رقم صح');
-    S.weights[d] = v; save(); render();
-  });
-  $$('[data-delw]').forEach(b => b.addEventListener('click', () => { if (confirm('امسح الوزن ده؟')) { delete S.weights[b.dataset.delw]; save(); render(); } }));
-  fillPhotos();
-  bindPhotoInput('phIn', render);
-  $$('[data-photo]').forEach(el => el.addEventListener('click', () => viewPhoto(el.dataset.photo)));
-};
-function vMeas() {
-  return `<button class="back" data-go="progress">${ic('back')}رجوع</button><h1>سجّل مقاساتك</h1>
-    <p class="small">بالسم • الصبح • الشريط على الجلد من غير ما تشده</p>
-    <div class="card">${MEAS.map(([k, l]) => `<div class="field"><label>${l}</label><input id="m-${k}" inputmode="decimal" placeholder="سم"></div>`).join('')}</div>
-    <div class="callout">${ic('images')}<span>خد كمان صورتين (قدام وجنب) في نفس الإضاءة.</span></div>
-    <button class="btn" id="mSave">حفظ • ${xpT(50)}</button>`;
-}
-BIND.meas = () => {
-  $('#mSave').addEventListener('click', () => {
-    const m = { d: today() }; let any = false;
-    MEAS.forEach(([k]) => { const v = num($('#m-' + k).value); if (v != null) { m[k] = v; any = true; } });
-    if (!any) return toast('اكتب مقاس واحد على الأقل');
-    S.meas = S.meas.filter(x => x.d !== m.d).concat([m]).sort((a, b) => a.d < b.d ? -1 : 1);
-    save(); go('progress');
-  });
-};
 let viewWeek = null;
 function weekDates(w) { const s = addDays(S.start, (w - 1) * 7); return [...Array(7)].map((_, i) => addDays(s, i)); }
 function weekMsg(w) {
@@ -689,13 +738,14 @@ function weekMsg(w) {
   t += `   المتوسط: ${cur ? fmt(cur) : '—'}${prv ? ' (اللي فات: ' + fmt(prv) + ')' : ''}\n🏋️ التمارين: ${sessions.length} من 3\n`;
   sessions.forEach(d => {
     const l = S.logs[d];
-    const first = planFor(l.w || 'A', w).slice(0, 2).map(it => {
+    const first = sessionPlan(d).slice(0, 2).map(it => {
       const a = (l.ex[it.k] || []).filter(x => x.d);
       if (!a.length) return null;
       const kgs = a.map(x => num(x.kg)).filter(x => x != null);
       return `${EX[it.k].name} ${kgs.length ? fmt(Math.max(...kgs)) + 'kg' : ''} × ${a.map(x => x.r || '?').join('/')}`;
     }).filter(Boolean);
-    t += `   • ${nice(d)} ${{ g: '🟢', y: '🟡', r: '🔴' }[l.neck] || ''}: ${first.join('، ') || '—'}${l.cardio ? ' + مشي' : ''}\n`;
+    const swaps = Object.values(l.swap || {}).map(k => EX[k].name);
+    t += `   • ${nice(d)} ${{ g: '🟢', y: '🟡', r: '🔴' }[l.neck] || ''}: ${first.join('، ') || '—'}${l.cardio ? ' + مشي' : ''}${swaps.length ? ' (بديل: ' + swaps.join('، ') + ')' : ''}\n`;
   });
   t += `🚶 أيام المشي: ${dates.filter(d => S.walks[d]).length}\n`;
   if (S.meas.length && weekOf(S.meas[S.meas.length - 1].d) === w) t += `📏 الوسط: ${S.meas[S.meas.length - 1].waist || '—'} سم\n`;
@@ -705,53 +755,86 @@ function weekMsg(w) {
   if (m.note) t += `📝 ${m.note}\n`;
   return t;
 }
-function vMsg() {
+function pWeek() {
   if (viewWeek == null) viewWeek = progWeek(today());
   const w = viewWeek, m = S.weekly[w] || {};
   const f = (k, label, ph) => `<div class="field"><label>${label}</label><input data-wk="${k}" inputmode="decimal" value="${esc(m[k])}" placeholder="${ph}"></div>`;
-  return `<button class="back" data-go="progress">${ic('back')}رجوع</button>
-    <div class="eyebrow"><h1>رسالة الأسبوع</h1><span class="chip">أسبوع ${w}</span></div>
-    <div class="seg"><button id="wkPrev">${ic('back')}اللي فات</button><button id="wkNext">الجاي${ic('chev')}</button></div>
+  return `<div class="weeknav"><button class="iconbtn" id="wkPrev" ${w <= 1 ? 'disabled' : ''}>${ic('back')}</button><b>أسبوع ${w}</b>
+    <button class="iconbtn" id="wkNext" ${w >= 12 ? 'disabled' : ''}>${ic('chev')}</button></div>
+    <p class="small">كل خميس: املا الخانات، انسخ الرسالة، وابعتهالي على الشات.</p>
     <div class="card">${f('steps', 'متوسط الخطوات', '5000')}${f('food', 'الالتزام بالأكل /10', '8')}${f('energy', 'الطاقة /10', '7')}
     ${f('hunger', 'الجوع /10', '5')}${f('sleep', 'النوم (ساعات)', '6.5')}${f('neck', 'الرقبة /10', '5')}
     <div class="field col"><label>ملاحظة</label><input class="wide" data-wk="note" value="${esc(m.note)}" placeholder="أي حاجة عايز تقولها..."></div></div>
-    <pre class="msg" id="msg">${esc(weekMsg(w))}</pre>
+    <details class="acc"><summary><span class="ico">${ic('msg')}</span>شوف الرسالة<span class="chev">${ic('chev')}</span></summary><div class="in"><pre class="msg" id="msg">${esc(weekMsg(w))}</pre></div></details>
     <button class="btn" id="copy">${ic('copy')}انسخ الرسالة • ${xpT(30)}</button>
     ${navigator.share ? `<button class="btn ghost" id="share">${ic('share')}ابعت</button>` : ''}`;
 }
-BIND.msg = () => {
-  const w = viewWeek;
-  $$('[data-wk]').forEach(inp => inp.addEventListener('input', () => {
-    (S.weekly[w] = S.weekly[w] || {})[inp.dataset.wk] = inp.value.trim(); save(); $('#msg').textContent = weekMsg(w);
-  }));
-  $('#wkPrev').addEventListener('click', () => { viewWeek = Math.max(1, w - 1); render(); });
-  $('#wkNext').addEventListener('click', () => { viewWeek = Math.min(12, w + 1); render(); });
-  const sent = () => { (S.weekly[w] = S.weekly[w] || {}).sent = 1; save(); award(); };
-  $('#copy').addEventListener('click', () => { copyText(weekMsg(w)); sent(); });
-  const sh = $('#share'); if (sh) sh.addEventListener('click', () => navigator.share({ text: weekMsg(w) }).then(sent).catch(() => {}));
+BIND.progress = () => {
+  const d = today();
+  bindSeg('ptabs', v => { progTab = v; });
+  const ws = $('#wSave');
+  if (ws) ws.addEventListener('click', () => {
+    const v = num($('#wIn').value);
+    if (v == null || v < 30 || v > 300) return toast('اكتب رقم صح');
+    S.weights[d] = v; save(); render(true);
+  });
+  $$('[data-delw]').forEach(b => b.addEventListener('click', () => { if (confirm('امسح الوزن ده؟')) { delete S.weights[b.dataset.delw]; save(); render(true); } }));
+  fillPhotos();
+  bindPhotoInput('phIn', () => render(true));
+  $$('[data-photo]').forEach(el => el.addEventListener('click', () => viewPhoto(el.dataset.photo)));
+  if (progTab === 'week') {
+    const w = viewWeek;
+    $$('[data-wk]').forEach(inp => inp.addEventListener('input', () => {
+      (S.weekly[w] = S.weekly[w] || {})[inp.dataset.wk] = inp.value.trim(); save(); $('#msg').textContent = weekMsg(w);
+    }));
+    $('#wkPrev').addEventListener('click', () => { viewWeek = Math.max(1, w - 1); render(true); });
+    $('#wkNext').addEventListener('click', () => { viewWeek = Math.min(12, w + 1); render(true); });
+    const sent = () => { (S.weekly[w] = S.weekly[w] || {}).sent = 1; save(); award(); };
+    $('#copy').addEventListener('click', () => { copyText(weekMsg(w)); sent(); });
+    const sh = $('#share'); if (sh) sh.addEventListener('click', () => navigator.share({ text: weekMsg(w) }).then(sent).catch(() => {}));
+  }
+};
+function vMeas() {
+  return `<button class="back" data-go="progress">${ic('back')}رجوع</button>${header('سجّل مقاساتك')}
+    <p class="small">بالسم • الصبح • الشريط على الجلد من غير ما تشده</p>
+    <div class="card">${MEAS.map(([k, l]) => `<div class="field"><label>${l}</label><input id="m-${k}" inputmode="decimal" placeholder="سم"></div>`).join('')}</div>
+    <div class="callout">${ic('camera')}<span>خد كمان صورتين (قدام وجنب) في نفس الإضاءة.</span></div>
+    <button class="btn" id="mSave">حفظ • ${xpT(50)}</button>`;
+}
+BIND.meas = () => {
+  $('#mSave').addEventListener('click', () => {
+    const m = { d: today() }; let any = false;
+    MEAS.forEach(([k]) => { const v = num($('#m-' + k).value); if (v != null) { m[k] = v; any = true; } });
+    if (!any) return toast('اكتب مقاس واحد على الأقل');
+    S.meas = S.meas.filter(x => x.d !== m.d).concat([m]).sort((a, b) => a.d < b.d ? -1 : 1);
+    save(); progTab = 'body'; go('progress');
+  });
 };
 
 // ------------------------------------------------------------------ TROPHIES
 function vTrophies() {
   const s = stats(), got = TROPHIES.filter(t => S.trophies && S.trophies[t[0]]).length, nextRank = RANKS.find(r => r[0] > s.level);
-  let h = `<h1>الإنجازات</h1><div class="hero-rank" style="--glow:${s.rank[4]};margin-top:16px">${rankBadge(s.rank, 'big')}
+  let h = header('الإنجازات') + `<div class="hero-rank" style="--glow:${s.rank[4]}">${rankBadge(s.rank, 'big')}
     <div class="lv">LV ${s.level}</div><div class="rn">رتبة ${s.rank[1]} • ${s.rank[2]}</div>
     <div class="xpbar" style="margin-top:14px"><i style="width:${Math.round(s.into / s.need * 100)}%"></i></div>
     <div class="xpt"><span class="ltr">${s.into} / ${s.need} XP</span>${nextRank ? ` • الرتبة ${nextRank[1]} عند مستوى ${nextRank[0]}` : ' • أعلى رتبة'}</div></div>
     <div class="tiles"><div class="tile"><b>${s.workouts}</b><span>تمارين</span></div><div class="tile"><b>${s.prs}</b><span>أرقام قياسية</span></div><div class="tile"><b>${s.streak}</b><span>أسابيع ورا بعض</span></div></div>
     <h2>الكؤوس • ${got} من ${TROPHIES.length}</h2><div class="tgrid">`;
   h += TROPHIES.map(t => { const on = S.trophies && S.trophies[t[0]]; return `<div class="trophy ${on ? 'on' : ''}"><div class="ti">${t[1]}</div><b>${t[2]}</b><span>${t[3]}</span></div>`; }).join('') + '</div>';
-  h += `<h2>الرتب</h2><div class="card"><div class="ranks">${RANKS.map(r => `<div>${rankBadge(r, 'sm' + (r[1] === s.rank[1] ? ' cur' : ''))}<span>${r[2]}</span><small>LV ${r[0]}</small></div>`).join('')}</div></div>`;
-  h += `<h2>إزاي تجمع XP</h2><div class="card">${[['كل مجموعة', 10], ['الإحماء • المشي • التبريد', 20], ['تمرين كامل', 100], ['رقم قياسي', 25], ['يوم مشي', 30],
-    ['تسجيل الوزن', 10], ['المقاسات', 50], ['صورة تقدّم (مرة في اليوم)', 20], ['رسالة الأسبوع', 30], ['رقبتك وجعتك وريّحتها', 60]].map(([a, b]) => `<div class="xprow"><span>${a}</span><b>+${b}</b></div>`).join('')}</div>`;
+  h += `<details class="acc" style="margin-top:18px"><summary><span class="ico">${ic('layers')}</span>الرتب<span class="chev">${ic('chev')}</span></summary><div class="in">
+    <div class="ranks">${RANKS.map(r => `<div>${rankBadge(r, 'sm' + (r[1] === s.rank[1] ? ' cur' : ''))}<span>${r[2]}</span><small>LV ${r[0]}</small></div>`).join('')}</div></div></details>`;
+  h += `<details class="acc"><summary><span class="ico">${ic('bolt')}</span>إزاي تجمع XP<span class="chev">${ic('chev')}</span></summary><div class="in">${[['كل مجموعة', 10], ['الإحماء • المشي • التبريد', 20], ['تمرين كامل', 100], ['رقم قياسي', 25], ['يوم مشي', 30],
+    ['تسجيل الوزن', 10], ['المقاسات', 50], ['صورة تقدّم (مرة في اليوم)', 20], ['رسالة الأسبوع', 30], ['رقبتك وجعتك وريّحتها', 60]].map(([a, b]) => `<div class="xprow"><span>${a}</span><b>+${b}</b></div>`).join('')}</div></details>`;
   return h;
 }
 
-// ------------------------------------------------------------------ ME
+// ------------------------------------------------------------------ ME (3 sections)
+let meTab = 'profile';
 const INFO = [
   ['rules', 'القواعد', `<ol><li><b>الأداء قبل الوزن.</b> الحركة النضيفة البطيئة أهم من التقيل.</li>
     <li><b>سيب عدات في الخزان:</b> وقّف وأنت لسه قادر تعمل 2–3 زيادة.</li>
     <li><b>إمتى تزوّد؟</b> التطبيق هيقولك لما تكسّر العدات كلها.</li>
+    <li><b>الجهاز مشغول؟</b> دوس "بديل" في شاشة التمرين.</li>
     <li><b>يوم مش طايق؟</b> الإحماء وأول تمرينين بس.</li></ol>
     <div class="light g">0–4 • تمرين عادي</div><div class="light y">5–6 • نص الوزن في الجزء العلوي</div><div class="light r">7–10 • مشي + إطالة بس</div>`],
   ['cal', 'جدول الأسبوع', `<table class="tb"><tr><td class="day">السبت</td><td>تمرين</td></tr><tr><td class="day">الحد</td><td>مشي (أو تعويض السبت)</td></tr>
@@ -773,45 +856,56 @@ const INFO = [
 ];
 const pv = k => String(S.profile[k] == null ? '' : S.profile[k]);
 function vMe() {
+  let h = header('أنا', meTab === 'profile' ? `<button class="tlink" data-go="edit">${ic('edit')}تعديل</button>` : '') +
+    segs('mtabs', meTab, [['profile', 'بياناتي'], ['plan', 'خطتي'], ['settings', 'الإعدادات']]);
+  return h + ({ profile: mProfile, plan: mPlan, settings: mSettings }[meTab] || mProfile)();
+}
+function mProfile() {
   const empty = !PROFILE.some(([, rows]) => rows.some(([k]) => pv(k)));
   const chips = ['age', 'height', 'startW'].map(pv).filter(Boolean);
-  let h = `<div class="eyebrow"><h1>أنا</h1><button class="tlink" data-go="edit">${ic('edit')}تعديل</button></div>
-    <div class="card"><div class="profile"><div class="avatar">${ic('user')}</div><div><b style="font-size:19px">بياناتي</b>
+  let h = `<div class="card"><div class="profile"><div class="avatar">${ic('user')}</div><div><b style="font-size:19px">بياناتي</b>
     <div class="pchips">${chips.map(c => `<span class="chip">${esc(c)}</span>`).join('')}</div></div></div></div>`;
-  if (empty) h += `<div class="note warn"><span class="ic">${ic('up')}</span><span>بياناتك لسه مش هنا. استرجع ملف بياناتك من الإعدادات تحت، أو دوس تعديل.</span></div>`;
+  if (empty) return h + `<div class="empty">${ic('up')}<b>بياناتك لسه مش هنا</b><span>استرجع ملف بياناتك من الإعدادات، أو دوس تعديل.</span>
+    <button class="btn" id="goSettings">افتح الإعدادات</button></div>`;
   PROFILE.forEach(([sec, rows], si) => {
     const list = si === 0 ? rows.filter(r => !['age', 'height', 'startW'].includes(r[0])) : rows;
     h += `<h2>${sec}</h2><div class="list-plain">${list.map(([k, l]) => {
       const v = pv(k) || '—', long = v.length > 22;
-      return `<div class="r" style="${long ? 'flex-direction:column;align-items:stretch;gap:2px' : ''}"><span class="k">${l}</span><span class="v ${long ? 'wrap' : ''}">${nr(esc(v))}</span></div>`;
+      return `<div class="r ${long ? 'col' : ''}"><span class="k">${l}</span><span class="v ${long ? 'wrap' : ''}">${nr(esc(v))}</span></div>`;
     }).join('')}</div>`;
   });
-  h += '<h2>خطتي</h2>';
-  INFO.forEach(([icn, t, body]) => { h += `<details class="acc"><summary><span class="ico">${ic(icn)}</span>${t}<span class="chev">${ic('chev')}</span></summary><div class="in">${nr(body)}</div></details>`; });
-  h += `<details class="acc"><summary><span class="ico">${ic('images')}</span>كل التمارين بالصور<span class="chev">${ic('chev')}</span></summary><div class="in">${Object.keys(EX).map(k => `<div class="exrow" data-go="exi:${k}">
-    <img src="${img(EX[k].img)}" alt=""><div class="n"><b>${EX[k].name}</b><span>${EX[k].ar}</span></div><span class="muted">${ic('chev')}</span></div>`).join('')}</div></details>`;
-  h += `<h2>الإعدادات</h2><div class="card">
-    <div class="small" style="margin-bottom:4px">المظهر</div>
-    <div class="seg">${[['dark', 'moon', 'غامق'], ['light', 'sun', 'فاتح'], ['auto', 'auto', 'تلقائي']].map(([v, i, l]) => `<button data-theme-set="${v}" class="${S.theme === v ? 'on' : ''}">${ic(i)}${l}</button>`).join('')}</div>
-    <div class="field"><label>أول يوم في البرنامج</label><input type="date" id="start" value="${S.start}" style="width:160px;font-size:15px"></div></div>
-    <div class="note info"><span class="ic">${ic('info')}</span><span>بياناتك على الموبايل ده بس. اعمل نسخة احتياطية كل أسبوعين.</span></div>
-    <button class="btn ghost" id="exp">${ic('down')}حفظ نسخة احتياطية</button>
-    <label class="btn ghost">${ic('up')}استرجاع نسخة<input type="file" id="imp" accept=".json,application/json" hidden></label>
-    <p class="small center">صور التمارين من free-exercise-db (Unlicense)<br>التطبيق مش بديل عن الدكتور أو العلاج الطبيعي</p>`;
   return h;
 }
+function mPlan() {
+  let h = INFO.map(([icn, t, body]) => `<details class="acc"><summary><span class="ico">${ic(icn)}</span>${t}<span class="chev">${ic('chev')}</span></summary><div class="in">${nr(body)}</div></details>`).join('');
+  h += `<h2>كل التمارين</h2><div class="card">${Object.keys(EX).map(k => `<button class="exrow" data-go="exi:${k}">
+    <img src="${img(EX[k].img)}" alt=""><div class="n"><b>${EX[k].name}</b><span>${EX[k].ar}</span></div><span class="muted">${ic('chev')}</span></button>`).join('')}</div>`;
+  return h;
+}
+function mSettings() {
+  return `<div class="card"><div class="small" style="margin-bottom:4px">المظهر</div>
+    <div class="seg">${[['dark', 'moon', 'غامق'], ['light', 'sun', 'فاتح'], ['auto', 'auto', 'تلقائي']].map(([v, i, l]) => `<button data-theme-set="${v}" class="${S.theme === v ? 'on' : ''}">${ic(i)}${l}</button>`).join('')}</div>
+    <div class="field"><label>أول يوم في البرنامج</label><input type="date" id="start" value="${S.start}" style="width:160px;font-size:15px"></div></div>
+    <h2>بياناتك</h2>
+    <div class="note info"><span class="ic">${ic('info')}</span><span>كل بياناتك وصورك على الموبايل ده بس. احفظ نسخة كل أسبوعين في iCloud Drive.</span></div>
+    <button class="btn ghost" id="exp">${ic('down')}حفظ نسخة احتياطية</button>
+    <label class="btn ghost">${ic('up')}استرجاع نسخة (أو ملف بياناتك)<input type="file" id="imp" accept=".json,application/json" hidden></label>
+    <p class="small center" style="margin-top:20px">صور التمارين من free-exercise-db (Unlicense)<br>التطبيق مش بديل عن الدكتور أو العلاج الطبيعي</p>`;
+}
 BIND.me = () => {
-  $$('[data-theme-set]').forEach(b => b.addEventListener('click', () => { S.theme = b.dataset.themeSet; save(); applyTheme(); render(); }));
-  $('#start').addEventListener('change', e => { if (e.target.value) { S.start = e.target.value; save(); toast('اتحفظ'); } });
-  $('#exp').addEventListener('click', exportData);
-  $('#imp').addEventListener('change', importData);
+  bindSeg('mtabs', v => { meTab = v; });
+  const gs = $('#goSettings'); if (gs) gs.addEventListener('click', () => { meTab = 'settings'; render(); });
+  $$('[data-theme-set]').forEach(b => b.addEventListener('click', () => { S.theme = b.dataset.themeSet; save(); applyTheme(); render(true); }));
+  const st = $('#start'); if (st) st.addEventListener('change', e => { if (e.target.value) { S.start = e.target.value; save(); toast('اتحفظ'); } });
+  const ex = $('#exp'); if (ex) ex.addEventListener('click', exportData);
+  const im = $('#imp'); if (im) im.addEventListener('change', importData);
 };
 function vEdit() {
-  let h = `<button class="back" data-go="me">${ic('back')}رجوع</button><h1>تعديل بياناتي</h1>`;
+  let h = `<button class="back" data-go="me">${ic('back')}رجوع</button>${header('تعديل بياناتي')}`;
   PROFILE.forEach(([sec, rows]) => {
     h += `<h2>${sec}</h2><div class="card">` + rows.map(([k, l]) => `<div class="field col"><label>${l}</label><input class="wide" data-pk="${k}" value="${esc(pv(k))}"></div>`).join('') + '</div>';
   });
-  return h + `<button class="btn" id="pSave">${ic('check')}حفظ</button>`;
+  return h + `<div class="stickybar"><button class="btn" id="pSave">${ic('check')}حفظ</button></div>`;
 }
 BIND.edit = () => {
   $('#pSave').addEventListener('click', () => { $$('[data-pk]').forEach(i => { S.profile[i.dataset.pk] = i.value.trim(); }); save(); toast('اتحفظ'); go('me'); });
@@ -820,11 +914,12 @@ function vExi(k) {
   const e = EX[k]; if (!e) return vMe();
   return `<button class="back" data-go="me">${ic('back')}رجوع</button>
     <div class="media" id="anim"><span class="chip glass cap" id="cap">البداية</span><img class="a" src="${img(e.img)}" alt=""><img class="b" src="${img(e.img, 1)}" alt="">
-    <div class="ttl"><div class="s">${e.ar} • ${e.machine}</div><div class="n">${e.name}</div></div></div>
+    <div class="ttl"><div class="n">${e.name}</div><div class="s">${e.ar} • ${e.machine}</div></div></div>
     <div class="tiles" style="grid-template-columns:1fr 1fr"><div class="tile"><b>${nr(e.sets)}</b><span>مجموعات</span></div><div class="tile"><b>${nr(e.rest)}</b><span>راحة</span></div></div>
-    <div class="card"><div class="small">${e.muscles}</div><ol>${e.steps.map(x => `<li>${nr(x)}</li>`).join('')}</ol>
-    <h3 style="color:var(--bad)">تجنّب</h3><ul>${e.avoid.map(x => `<li>${x}</li>`).join('')}</ul>
-    ${e.neck ? `<div class="callout">${ic('shield')}<span>${e.neck}</span></div>` : ''}<div class="callout">${ic('swap')}<span>البديل: ${en(e.alt)}</span></div></div>`;
+    <div class="card"><div class="small">${e.muscles}</div><ol class="steps-ol">${e.steps.map(x => `<li>${nr(x)}</li>`).join('')}</ol>
+    <h3 style="color:var(--bad)">تجنّب</h3><ul class="steps-ol">${e.avoid.map(x => `<li>${x}</li>`).join('')}</ul>
+    ${e.neck ? `<div class="callout">${ic('shield')}<span>${e.neck}</span></div>` : ''}
+    ${ALT[k] ? `<button class="act wide" data-go="exi:${ALT[k]}">${ic('swap')}<span>البديل<small class="ltr">${EX[ALT[k]].name}</small></span></button>` : ''}</div>`;
 }
 BIND.exi = () => {
   const an = $('#anim'), cap = $('#cap');
@@ -840,12 +935,12 @@ function copyText(t) {
 function fallbackCopy(t, done) {
   const ta = document.createElement('textarea'); ta.value = t; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
   document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, t.length);
-  try { document.execCommand('copy'); done(); } catch (e) { toast('انسخها يدوي من فوق'); }
+  try { document.execCommand('copy'); done(); } catch (e) { toast('انسخها يدوي'); }
   ta.remove();
 }
 function exportData() {   // backup = all data + the photos
   pall().catch(() => []).then(photosData => {
-    const name = 'gym-backup-' + today() + '.json';
+    const name = 'rankup-backup-' + today() + '.json';
     const blob = new Blob([JSON.stringify(Object.assign({}, S, { photosData }))], { type: 'application/json' });
     const file = new File([blob], name, { type: 'application/json' });
     S.lastBackup = today(); save();
@@ -862,11 +957,11 @@ function importData(e) {
     if (!confirm('ده هيستبدل كل البيانات الحالية بالنسخة دي. تكمّل؟')) return;
     const photos = s.photosData || []; delete s.photosData;
     return Promise.all(photos.map(pput)).then(() => {
-      localStorage.setItem(KEY, JSON.stringify(s)); S = load(); applyTheme(); toast('اترجعت'); render();
+      localStorage.setItem(KEY, JSON.stringify(s)); S = load(); applyTheme(); toast('اترجعت'); meTab = 'profile'; render();
     });
   }).catch(() => toast('الملف ده مش نسخة صح'));
 }
-// Screen stays on during a workout (where the phone supports it).
+// screen stays on during a workout (where the phone supports it)
 let wake = null, wantWake = false;
 function keepAwake(on) {
   wantWake = on;
@@ -875,7 +970,7 @@ function keepAwake(on) {
   if (!on && wake) { wake.release().catch(() => {}); wake = null; }
 }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && wantWake) keepAwake(true); });
-// Short beep when rest ends. iPhone only allows sound after the first tap, so the audio is unlocked on the first tap.
+// short beep when rest ends (iPhone allows sound only after the first tap)
 let actx = null;
 document.addEventListener('pointerdown', () => {
   try { if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === 'suspended') actx.resume(); } catch (e) { /* no audio */ }
