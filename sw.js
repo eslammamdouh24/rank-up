@@ -1,7 +1,7 @@
 /* Offline support: everything is saved on the phone after the first open.
    Pages/code: try the network first (so updates arrive), fall back to the saved copy offline.
    Photos: use the saved copy. */
-const CACHE = 'gym-v8';
+const CACHE = 'gym-v9';
 importScripts('data.js', 'config.js');
 // warm-up, cool-down and treadmill pictures (start + end), plus every exercise in the library
 const IMGS = new Set();

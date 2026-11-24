@@ -1315,33 +1315,55 @@ function notifCard() {
     return `<div class="note warn"><span class="ic">${ic('info')}</span><span>${isIOS() ? 'الإشعارات بتشتغل بس لما تفتح RANK UP من أيقونته على الشاشة الرئيسية (مش من Safari).' : 'المتصفح ده مش بيدعم الإشعارات.'}</span></div>`;
   if (Notification.permission === 'denied')
     return `<div class="note warn"><span class="ic">${ic('info')}</span><span>الإشعارات مقفولة. افتحها من إعدادات الآيفون: Settings ← Notifications ← RANK UP.</span></div>`;
-  if (!on) return `<div class="card"><p class="small" style="margin-top:0">تفكير بمواعيد الجيم والمشي والوزن ورسالة الخميس، حتى لو التطبيق مقفول.</p><button class="btn" id="nOn">${ic('bolt')}فعّل الإشعارات</button></div>`;
+  if (!on) return `<div class="card"><p class="small" style="margin-top:0">تفكير بمواعيد الجيم والمشي والوزن ورسالة الخميس، حتى لو التطبيق مقفول.</p><button class="btn" id="nOn">${ic('bolt')}فعّل الإشعارات</button><div class="small ltr" id="nStatus" style="text-align:center;font-size:11.5px"></div></div>`;
   const p = notifPrefs();
   return `<div class="card">${NOTIF.map(([k, l, sub]) => `<div class="nrow">
       <label class="switch"><input type="checkbox" data-non="${k}" ${p[k].on ? 'checked' : ''}><span></span></label>
       <div class="nlab"><b>${l}</b><small>${sub}${k === 'gym' ? ` • قبلها <select data-nbefore="gym">${[0, 15, 30, 60].map(m => `<option value="${m}" ${+p.gym.before === m ? 'selected' : ''}>${m} د</option>`).join('')}</select>` : ''}</small></div>
       <input type="time" data-ntime="${k}" value="${p[k].time}" ${p[k].on ? '' : 'disabled'}></div>`).join('')}
     <button class="btn ghost" id="nTest">${ic('bolt')}جرّب إشعار دلوقتي</button>
-    <button class="tlink muted" id="nOff" style="width:100%;justify-content:center">${ic('x')}وقّف كل الإشعارات</button></div>`;
+    <button class="tlink muted" id="nOff" style="width:100%;justify-content:center">${ic('x')}وقّف كل الإشعارات</button>
+    <div class="small ltr" id="nStatus" style="text-align:center;font-size:11.5px"></div></div>`;
+}
+const APP_VERSION = '2026.11.25-b';
+// send a short error report to the push server (no personal data), so problems on the phone can be found
+function report(step, e, info = '') {
+  if (!self.PUSH_URL) return;
+  fetch(self.PUSH_URL + '/log', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ step, err: e ? (e.name || '') + ': ' + (e.message || String(e)) : '', info: APP_VERSION + ' ' + info }) }).catch(() => {});
 }
 async function syncPush() {
-  if (!self.PUSH_URL || !(S.notif && S.notif.on)) return;
-  const sub = await currentSub(); if (!sub) return;
+  if (!self.PUSH_URL || !(S.notif && S.notif.on)) return false;
+  const sub = await currentSub(); if (!sub) { report('sync', null, 'no subscription on phone'); return false; }
   try {
-    await pushFetch('/subscribe', { subscription: sub.toJSON(), prefs: notifPrefs(), tz: Intl.DateTimeFormat().resolvedOptions().timeZone, start: S.start });
-  } catch (e) { toast('مقدرتش أوصل لسيرفر الإشعارات. هحاول تاني بعدين'); }
+    const r = await pushFetch('/subscribe', { subscription: sub.toJSON(), prefs: notifPrefs(), tz: Intl.DateTimeFormat().resolvedOptions().timeZone, start: S.start });
+    if (!r.ok) throw new Error('server ' + r.status);
+    return true;
+  } catch (e) { report('sync', e); toast('مقدرتش أوصل لسيرفر الإشعارات: ' + (e.message || e)); return false; }
 }
 async function enablePush() {
-  const perm = await Notification.requestPermission();   // must be the first thing after the tap (iPhone rule)
-  if (perm !== 'granted') { toast('الإشعارات مش مسموحة'); render(true); return; }
+  let step = 'permission';
   try {
+    const perm = await Notification.requestPermission();   // must be the first thing after the tap (iPhone rule)
+    if (perm !== 'granted') { report('permission', null, 'answer=' + perm); toast('الإشعارات مش مسموحة (' + perm + ')'); render(true); return; }
+    step = 'service-worker';
     const reg = await navigator.serviceWorker.ready;
-    const { key } = await (await fetch(self.PUSH_URL + '/vapid')).json();
+    step = 'server-key';
+    const kr = await fetch(self.PUSH_URL + '/vapid'); if (!kr.ok) throw new Error('server ' + kr.status);
+    const { key } = await kr.json();
+    step = 'subscribe';
     let sub = await reg.pushManager.getSubscription();
     if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uBytes(key) });
     S.notif = { on: true, prefs: notifPrefs() }; save();
-    await syncPush(); toast('الإشعارات اتفعّلت ✓'); render(true);
-  } catch (e) { toast('حصلت مشكلة في تفعيل الإشعارات'); }
+    step = 'register';
+    if (await syncPush()) { report('enabled', null, 'ok ' + new URL(sub.endpoint).host); toast('الإشعارات اتفعّلت ✓'); }
+    render(true);
+  } catch (e) { report(step, e); toast('مشكلة في خطوة ' + step + ': ' + (e.message || e)); render(true); }
+}
+async function notifStatus() {
+  const el = $('#nStatus'); if (!el) return;
+  const sub = await currentSub();
+  el.textContent = `${APP_VERSION} • الإذن: ${'Notification' in window ? Notification.permission : '—'} • ${sub ? 'متسجّل ✓ ' + new URL(sub.endpoint).host : 'مش متسجّل'}`;
 }
 async function disablePush() {
   const sub = await currentSub();
@@ -1350,12 +1372,18 @@ async function disablePush() {
 }
 let notifTimer = null;
 function bindNotif() {
+  notifStatus();
   const on = $('#nOn'); if (on) on.addEventListener('click', enablePush);
   const off = $('#nOff'); if (off) off.addEventListener('click', () => { if (confirm('توقف كل الإشعارات؟')) disablePush(); });
   const tst = $('#nTest');
   if (tst) tst.addEventListener('click', async () => {
     const sub = await currentSub(); if (!sub) return toast('فعّل الإشعارات الأول');
-    try { await syncPush(); const r = await (await pushFetch('/test', { endpoint: sub.endpoint })).json(); toast(r.ok ? 'اتبعت. اقفل التطبيق وشوف' : 'مقدرتش أبعت'); } catch (e) { toast('مفيش نت'); }
+    try {
+      if (!(await syncPush())) return;
+      const r = await (await pushFetch('/test', { endpoint: sub.endpoint })).json();
+      if (!r.ok) report('test', null, 'push service ' + r.status + ' ' + (r.error || ''));
+      toast(r.ok ? 'اتبعت. اقفل التطبيق وشوف' : 'مقدرتش أبعت (' + (r.status || r.error) + ')');
+    } catch (e) { report('test', e); toast('مفيش نت'); }
   });
   const changed = () => { clearTimeout(notifTimer); notifTimer = setTimeout(syncPush, 600); };
   $$('[data-non]').forEach(x => x.addEventListener('change', () => { const p = notifPrefs(); p[x.dataset.non].on = x.checked; S.notif.prefs = p; save(); changed(); render(true); }));
