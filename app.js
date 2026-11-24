@@ -15,16 +15,28 @@ const ALT = {
 };
 
 // Warm-up and cool-down moves, each with a start and an end picture.
+// Warm-up (~10 min): get warm, move every joint gently, then wake up the legs and hips. Neck-safe.
 const WARM = [
-  ['Bicycling_Stationary', 'عجلة أو مشي', 'Bike / Treadmill', '5 دقايق، مجهود خفيف'],
-  ['Cat_Stretch', 'القطة والجمل', 'Cat-Cow', '8 مرات ببطء: قوّس ضهرك لفوق، وبعدين نزّله لتحت'],
+  ['Bicycling_Stationary', 'عجلة أو مشي', 'Bike / Treadmill', '5 دقايق، مجهود خفيف لحد ما تعرق شوية'],
+  ['Arm_Circles', 'لف الدراعات', 'Arm Circles', '10 لقدام و10 لورا • دواير صغيرة وبعدين أكبر'],
   ['Shoulder_Circles', 'لف الكتف لورا', 'Shoulder Rolls', '10 مرات: ارفع كتافك ولفّهم لورا ولتحت'],
   ['chin_tuck', 'شد الدقن لورا', 'Chin Tucks', '8 مرات: رجّع دقنك لورا بخط مستقيم واثبت 3 ثواني، من غير ألم'],
+  ['Cat_Stretch', 'القطة والجمل', 'Cat-Cow', '8 مرات ببطء: قوّس ضهرك لفوق، وبعدين نزّله لتحت'],
+  ['Standing_Hip_Circles', 'لف الحوض', 'Hip Circles', '8 لكل اتجاه • إيديك على وسطك'],
+  ['Torso_Rotation', 'لف الجذع', 'Torso Rotation', '10 لكل ناحية ببطء • دراعاتك قدامك وراسك تلف مع صدرك (الكورة مش لازم)'],
+  ['Bodyweight_Squat', 'سكوات من غير وزن', 'Bodyweight Squat', '10 ببطء • ممكن تنزل لحد ما تلمس بنش'],
+  ['Butt_Lift_Bridge', 'رفع الحوض', 'Glute Bridge', '10 مرات واثبت ثانيتين فوق • راسك على الأرض'],
 ];
+// Stretches after the workout (~8 min): hold each one 30 seconds, breathe slowly, never bounce.
 const COOL = [
   ['Kneeling_Hip_Flexor', 'مقدمة الحوض', 'Kneeling Hip Flexor', 'ركبة على الأرض وادفع الحوض لقدام بهدوء • 30 ثانية لكل رجل'],
   ['Hamstring_Stretch', 'الفخذ الخلفي', 'Hamstring Stretch', 'ضهرك مفرود وميل من الحوض لحد ما تحس شد خفيف • 30 ثانية'],
+  ['On_Your_Side_Quad_Stretch', 'الفخذ الأمامي', 'Side Quad Stretch', 'نام على جنبك واسحب كعبك ناحية مؤخرتك • راسك على دراعك • 30 ثانية لكل رجل'],
+  ['Calf_Stretch_Hands_Against_Wall', 'السمانة', 'Calf Stretch', 'إيديك على الحيطة ورجل لورا والكعب على الأرض • 30 ثانية لكل رجل'],
+  ['One_Knee_To_Chest', 'المؤخرة وأسفل الضهر', 'Knee to Chest', 'نام على ضهرك واحضن ركبة ناحية صدرك • راسك على الأرض • 30 ثانية لكل رجل'],
+  ['Childs_Pose', 'وضع الطفل', "Child's Pose", 'اقعد على كعبك ومد دراعاتك لقدام على الأرض • 30–45 ثانية'],
   ['Dynamic_Chest_Stretch', 'فتح الصدر', 'Chest Opener', 'افتح دراعاتك لورا بهدوء وارجع • 10 مرات'],
+  ['Upper_Back_Stretch', 'أعلى الضهر', 'Upper Back Stretch', 'شبّك إيديك قدامك وزقّهم لقدام ودوّر ضهرك • 20–30 ثانية'],
   ['Side_Neck_Stretch', 'جانب الرقبة', 'Side Neck Stretch', 'ميّل راسك للجنب بهدوء، إيدك بتسند بس • 20 ثانية كل ناحية. لو بتوجع ← وقّف'],
 ];
 // Activities you can log on any day, with minutes.
@@ -488,8 +500,8 @@ function row(i, st, log, w, nextIdx) {
     if (st.it.extra) tag = '<span class="tag">إضافي</span>';
     if ((log && log.skip || {})[st.it.k]) tag = '<span class="tag">اتخطّى</span>';
   } else {
-    const m = { neck: ['الرقبة النهارده', 'سؤال واحد', null, 'shield'], warm: ['الإحماء', '7 دقايق', 'Bicycling_Stationary'],
-      cardio: ['مشي تريدميل', cardioFor(w)[0] + ' دقيقة', 'Walking_Treadmill'], cool: ['التبريد', '5 دقايق', 'Kneeling_Hip_Flexor'] }[st.id];
+    const m = { neck: ['الرقبة النهارده', 'سؤال واحد', null, 'shield'], warm: ['الإحماء', '10 دقايق • 9 حركات', 'Bicycling_Stationary'],
+      cardio: ['مشي تريدميل', cardioFor(w)[0] + ' دقيقة', 'Walking_Treadmill'], cool: ['الإطالات', '8 دقايق • 9 إطالات', 'Kneeling_Hip_Flexor'] }[st.id];
     th = m[2] ? `<img class="th" src="${img(m[2])}" alt="">` : `<span class="th">${ic(m[3])}</span>`; t = m[0]; sub = m[1];
   }
   return `<li class="${dn ? 'done' : ''} ${i === nextIdx ? 'next' : ''}" data-go="flow:${i}">${th}<span class="nm">${t}${tag}<small>${sub}</small></span><span class="st">${dn ? ic('check') : ''}</span></li>`;
@@ -826,7 +838,7 @@ function vFlow(arg) {
   const moves = (title, sub, items, mark, label) => h + `<h1>${title}</h1><p class="small">${sub}</p>${undoBar(mark)}` +
     items.map(([im, t, e, s], j) => `<div class="item">${media(im, '', '', 'sm')}<div class="tx"><span class="num-badge">${j + 1}</span><div><b>${t}</b> ${en(e)}<div class="small">${nr(s)}</div></div></div></div>`).join('') +
     `<div class="stickybar">${log[mark] ? `<button class="btn" data-go="flow:${i + 1}">كمّل ${ic('chev')}</button>` : `<button class="btn ok" data-mark="${mark}">${ic('check')}${label}</button>`}</div>`;
-  if (st.id === 'warm') return moves('الإحماء', '7 دقايق • ' + xpT(20), WARM, 'warm', 'خلصت الإحماء');
+  if (st.id === 'warm') return moves('الإحماء', '10 دقايق • بعدها مجموعة خفيفة من أول تمرين بنص الوزن • ' + xpT(20), WARM, 'warm', 'خلصت الإحماء');
   if (st.id === 'cardio') {
     const [cm, inc] = cardioFor(w), done = log.cardioMin || cm;
     return h + `<h1>مشي تريدميل</h1><p class="small">الهدف ${cm} دقيقة • لو مشيت أكتر تاخد XP زيادة</p>${undoBar('cardio')}${media('Walking_Treadmill')}
@@ -836,7 +848,7 @@ function vFlow(arg) {
       <div class="pm"><button data-cstep="-5">${ic('minus')}</button><button data-cstep="5">${ic('plus')}</button></div></div>
       <div class="stickybar"><button class="btn ok" id="cardioDone">${ic('check')}${log.cardio ? 'حفظ الدقايق وكمّل' : 'خلصت المشي'}</button></div>`;
   }
-  if (st.id === 'cool') return moves('التبريد', '5 دقايق • ' + xpT(20), COOL, 'cool', 'خلصت');
+  if (st.id === 'cool') return moves('الإطالات', 'حوالي 8 دقايق • اثبت في كل إطالة 30 ثانية واتنفس ببطء، من غير هز • ' + xpT(20), COOL, 'cool', 'خلصت الإطالات');
   if (st.id === 'done') {
     const exs = steps.filter(x => x.id === 'ex'), tp = (S.photos || []).filter(p => p.d === d).pop();
     return h + `<div class="burst">${ic('trophy')}</div><h1 class="center">المهمة خلصت!</h1>
@@ -1124,7 +1136,7 @@ function vTrophies() {
   h += TROPHIES.map(t => { const on = S.trophies && S.trophies[t[0]]; return `<div class="trophy ${on ? 'on' : ''}"><div class="ti">${t[1]}</div><b>${t[2]}</b><span>${t[3]}</span></div>`; }).join('') + '</div>';
   h += `<details class="acc" style="margin-top:18px"><summary><span class="ico">${ic('layers')}</span>الرتب<span class="chev">${ic('chev')}</span></summary><div class="in">
     <div class="ranks">${RANKS.map(r => `<div>${rankBadge(r, 'sm' + (r[1] === s.rank[1] ? ' cur' : ''))}<span>${r[2]}</span><small>LV ${r[0]}</small></div>`).join('')}</div></div></details>`;
-  h += `<details class="acc"><summary><span class="ico">${ic('bolt')}</span>إزاي تجمع XP<span class="chev">${ic('chev')}</span></summary><div class="in">${[['كل مجموعة', 10], ['الإحماء • المشي • التبريد', 20], ['تمرين كامل', 100], ['رقم قياسي', 25], ['أي نشاط: كل 3 دقايق', 2], ['مشي تريدميل أكتر من الهدف: كل 3 دقايق', 2],
+  h += `<details class="acc"><summary><span class="ico">${ic('bolt')}</span>إزاي تجمع XP<span class="chev">${ic('chev')}</span></summary><div class="in">${[['كل مجموعة', 10], ['الإحماء • المشي • الإطالات', 20], ['تمرين كامل', 100], ['رقم قياسي', 25], ['أي نشاط: كل 3 دقايق', 2], ['مشي تريدميل أكتر من الهدف: كل 3 دقايق', 2],
     ['تسجيل الوزن', 10], ['وصلت لهدف البروتين', 20], ['وصلت لهدف المية', 10], ['المقاسات', 50], ['صورة تقدّم (مرة في اليوم)', 20], ['رسالة الأسبوع', 30], ['رقبتك وجعتك وريّحتها', 60]].map(([a, b]) => `<div class="xprow"><span>${a}</span><b>+${b}</b></div>`).join('')}</div></details>`;
   return h;
 }

@@ -1,12 +1,13 @@
 /* Offline support: everything is saved on the phone after the first open.
    Pages/code: try the network first (so updates arrive), fall back to the saved copy offline.
    Photos: use the saved copy. */
-const CACHE = 'gym-v10';
+const CACHE = 'gym-v11';
 importScripts('data.js', 'config.js');
 // warm-up, cool-down and treadmill pictures (start + end), plus every exercise in the library
 const IMGS = new Set();
 ['Bicycling_Stationary', 'Cat_Stretch', 'Shoulder_Circles', 'Walking_Treadmill', 'Kneeling_Hip_Flexor', 'Hamstring_Stretch',
-  'Dynamic_Chest_Stretch', 'Side_Neck_Stretch'].forEach(n => { IMGS.add(n + '_0.jpg'); IMGS.add(n + '_1.jpg'); });
+  'Dynamic_Chest_Stretch', 'Side_Neck_Stretch', 'Arm_Circles', 'Standing_Hip_Circles', 'Torso_Rotation', 'Bodyweight_Squat',
+  'Butt_Lift_Bridge', 'On_Your_Side_Quad_Stretch', 'Calf_Stretch_Hands_Against_Wall', 'One_Knee_To_Chest', 'Childs_Pose', 'Upper_Back_Stretch'].forEach(n => { IMGS.add(n + '_0.jpg'); IMGS.add(n + '_1.jpg'); });
 Object.values(DATA.EX).forEach(e => { IMGS.add(e.img + '_0.jpg'); IMGS.add(e.img + '_1.jpg'); });
 IMGS.add('chin_tuck_0.svg'); IMGS.add('chin_tuck_1.svg');
 const ASSETS = ['./', 'index.html', 'app.js', 'data.js', 'config.js', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png',
